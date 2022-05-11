@@ -1,6 +1,14 @@
-from pytube import YouTube
-from YouTube_Download import YouTube_Download
-if __name__ == '__main__':
-    yt = YouTube_Download()
-    url="https://www.youtube.com/watch?v=dx7p3gjSn4k"
-    yt.download_video(url)
+import sys
+from tkinter import Widget
+from PyQt6.QtWidgets import * 
+from PyQt6.QtGui import * 
+from PyQt6.QtCore import *
+  
+
+  
+  
+# app = QApplication(sys.argv)
+# #window = QMainWindow()
+# demo = loading_gif()
+# demo.show()
+# sys.exit(app.exec())

@@ -1,5 +1,4 @@
 from package.YouTube_Download import YouTube_Download
-from enum import Enum
 import os
 def input_select(word):
     SELECT_LIST = ["video", "audio", "playlist"]

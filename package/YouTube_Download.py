@@ -1,35 +1,47 @@
-from email.mime import audio
-import os
-from tkinter.ttk import Progressbar
 
+import os
 from pytube import YouTube
 from pytube import Playlist
 import ffmpeg
-import pyperclip # clipboard
-import re
+import re, time
 from pathlib import Path
-
+import threading
 class YouTube_Download:
     DEFAULT_PATH = Path(str(Path.home() / "Downloads"))
     def __init__(self, output_path=DEFAULT_PATH):
-        self.output_path = output_path
+        self.__output_path = output_path
         self.stream_dict = {}
-        self.yt_info = {}
-# setting
-    def set_YouTube(self, url="https://www.youtube.com/watch?v=dx7p3gjSn4k"):
+        self.info = {}
+        self.progress = [0]*100
+        self.num = 0
+    def add_num(self):
+        self.num = self.num if self.num < 100 else 0
+        
+    def my_progress_bar(self, stream, chunk, data_remaining):
+        """progress_callback to use"""
+        
+        total_size = stream.filesize
+        current = ((total_size - data_remaining) / total_size)
+        #percent = ('{0:.1f}').format(current*100)
+        self.progress[self.num] = int(50*current) - 1
+        #status = '█' * self.progress[self.num] + '-' * (50 - self.progress[self.num])
+        #print(' ↳ |{bar}| {percent}%\r'.format(bar=status, percent=percent), end='', flush=True)
+ 
+    def set_YouTube(self, url):
+        if not self.is_YouTube_URL(url): return 
         self.yt = YouTube(url, on_progress_callback=self.my_progress_bar)
-        self.yt_info.update({"title":self.yt.title, 
+        self.info.update({"title":self.yt.title, 
                         "thumbnail_url": self.yt.thumbnail_url,
-                        "play_len": self.yt.length,
-                        # "author": self.yt.author,
+                        "author": self.yt.author,
                         # "captions": self.yt.captions,# 字幕
-                        # "publish_date": self.yt.publish_date,
-                        # "views": self.yt.views
+                        "publish_date": self.yt.publish_date,
+                        "views": self.yt.views,
+                        "play_len": self.yt.length
                         })
         for res in ["4320p", "2160p", "1080p", "720p", "480p"]:
             video_obj = self.yt.streams.filter(mime_type="video/mp4",res=res).first()
             if video_obj != None:
-                self.stream_dict.update({video_obj.resolution:{"obj":video_obj, 
+                self.stream_dict.update({res.replace("p", ""):{"obj":video_obj, 
                                                             "file_size": video_obj.filesize
                                                             }})
         audio_obj = self.yt.streams.get_audio_only() 
@@ -37,11 +49,6 @@ class YouTube_Download:
                                                 "abr": audio_obj.abr,
                                                 "file_size": video_obj.filesize
                                                 }})
-        for key, val in self.yt_info.items():
-            print(str(key), " : ", str(val))
-        for key in self.stream_dict.keys():
-            print("type :", self.stream_dict[key]["obj"])
-            print("file_size :", str(self.stream_dict[key]["file_size"]))
             
     def set_output_path(self, path):
         """Vaild path"""
@@ -49,18 +56,26 @@ class YouTube_Download:
         path = Path(path)
         #path = Path(filedialog.askdirectory())
         if path.exists():
-            self.output_path = path
+            self.__output_path = path
         else:
-            print("The Path is not exist.\n Default Download Path is ", self.output_path)
+            print("The Path is not exist.\n Default Download Path is ", self.__output_path)
 # vaild
     def is_YouTube_URL(self, url):
         """Vaild YouTube's URL."""
         
-        return True if self.get_video_ID(url) != None else False
+        if self.get_video_ID(url) != None:
+            return True 
+        else: 
+            print("[ERROR] Not a YouTube URL... Please enter the correct YouTube URL...")
+            return False
     def is_YouTube_playlist_URL(self, url):
         """Vaild YouTube's playlist URL."""
         
-        return True if self.get_playlist_ID(url) != None else False
+        if self.get_playlist_ID(url) != None:
+            return True 
+        else: 
+            print("[ERROR] Not a YouTube playlist URL... Please enter the correct YouTube URL...")
+            return False
     def input_url(self, word):
         """Vaild input string"""
         # url = pyperclip.paste()
@@ -90,32 +105,27 @@ class YouTube_Download:
         sreMatch = re.match(youtube_regex, url)
         return sreMatch.group("video_ID") if sreMatch != None else None
 # download    
-    def my_progress_bar(self, stream, chunk, data_remaining):
-        """progress_callback to use"""
-        total_size = stream.filesize
-        current = ((total_size - data_remaining) / total_size)
-        percent = ('{0:.1f}').format(current*100)
-        progress = int(50*current)
-        status = '█' * progress + '-' * (50 - progress)
-        print(' ↳ |{bar}| {percent}%\r'.format(bar=status, percent=percent), end='', flush=True)
+    def add_download_json(self):
+        pass
 
-    def download_playlist(self, url, download_type="video"):
+
+    def download_playlist(self, url, num, download_type="audio"):
         """Download all files in playlist from YouTube"""
         
-        if not self.is_YouTube_playlist_URL(url): 
-            print("[ERROR] Not a YouTube playlist URL... Please enter the correct YouTube URL...")
-            return 
-        index = 0
+        if not self.is_YouTube_playlist_URL(url): return None
         playlist = Playlist(url)
-        download_type = True if download_type == "video" else False # True = download Video False = download Audio
         for url in playlist.video_urls:
-            index+=1
-            print("Download "+str(index)+" from playlist.")
-            if download_type:
-                self.download_video(url)
+            self.add_num()
+            print("Download "+str(num)+" from playlist.")
+            if download_type == "audio":
+                self.download_audio(url, num)
             else:
-                self.download_audio(url) 
-    def download_video(self, url):
+                self.download_video(url, num, download_type)
+        return True
+    def download_video_thread(self, url, num, res):
+        t = threading.Thread(target=self.download_video, args =(url,num,res,))
+        t.start()
+    def download_video(self, url, num, res):
         """Download a video from YouTube"""
         
         def check_audio(file_name):
@@ -123,9 +133,9 @@ class YouTube_Download:
             
             p = ffmpeg.probe(file_name, select_streams='a')
             return p['streams']
-        def merge(out, video, audio):
+        def merge(out, video, audio, num):
             """Merge audio & video"""
-            
+            self.progress[num] = 99
             ffvideo = ffmpeg.input(video)
             ffaudio = ffmpeg.input(audio)
             ffmpeg.concat(ffvideo, ffaudio, v=1, a=1) \
@@ -133,62 +143,60 @@ class YouTube_Download:
                 .run(capture_stdout=True, capture_stderr=True, overwrite_output=True)
             os.remove(video)
             os.remove(audio)
-            print("Merge Output:", self.output_path)
+            print("Merge Output:", self.__output_path)
         try:
-            if not self.is_YouTube_URL(url): 
-                print("[ERROR] Not a YouTube URL... Please enter the correct YouTube URL...")
-                return
-            self.set_YouTube(url)
-        # Select Resolution
-            while True:
-                print("-"*7 + "Select Resolution" + "-"*7)
-                for key in self.stream_dict.keys():
-                    if key == "audio": continue
-                    print(key)
-                print("-"*34)
-                try: 
-                    res = input("Input:")
-                except ValueError:
-                    os.system('cls')
-                    print("[ERROR] Not a accuracy select...")
-                    continue
-                if res in self.stream_dict.keys(): break
-                
-            out = self.stream_dict[res]["obj"].download(output_path=self.output_path, skip_existing=True)
+            if not self.is_YouTube_URL(url): return
+            self.add_num()
+            if res == "8787": 
+                out = self.stream_dict["audio"]["obj"].download(output_path=self.__output_path, skip_existing=True)#audio
+            else:
+                out = self.stream_dict[res]["obj"].download(output_path=self.__output_path, skip_existing=True)
+
             if not check_audio(out):
-            # provent duplicate name
-                video_out = self.output_path / "temp_video.mp4"
+            # provent duplicate name https://www.youtube.com/watch?v=Z2RYzmU6pV0&list=LL&index=1
+                video_out = Path(self.__output_path / ("temp_video"+str(num)+".mp4"))
+
                 if video_out.exists():
                     os.remove(video_out)
+                video_out = str(video_out)
                 os.rename(out, video_out)
-                audio_out = self.download_audio(url, Flag_temp=True)
-                merge(out, video_out, audio_out)
+                audio_out = self.download_audio(url, num, Flag_temp=True)
+                merge(out, video_out, audio_out, num)
+            self.progress[num] = 100
+            time.sleep(1)
             return out
         except ffmpeg.Error as e:
             print(e.stdout)
             print(e.stderr)
             return None
-        except Exception as e:
-            print(e)
-            print("[ERROR] Download video Failed.")
-            return None
-    def download_audio(self, url, Flag_temp=False):
+        # except Exception as e:
+        #     print(e)
+        #     print("[ERROR] Download video Failed.")
+        #     return None
+    def download_audio_thread(self, url, num):
+        t = threading.Thread(target=self.download_audio, args =(url,num,))
+        t.start()
+    def download_audio(self, url, num=0, Flag_temp=False):
         """Download a audio from YouTube"""
-        if not self.is_YouTube_URL(url): 
-            print("[ERROR] Not a YouTube URL... Please enter the correct YouTube URL...")
-            return
+        if not self.is_YouTube_URL(url): return
         try:
+            self.add_num()
             if Flag_temp:
-                if (self.output_path / "temp_audio.mp4").exists(): 
-                    os.remove(self.output_path / "temp_audio.mp4")
-                out = self.stream_dict["audio"]["obj"].download(output_path=self.output_path,
-                                                                filename="temp_audio.mp4")
+                temp_name = Path(str(num)+"temp_audio.mp4")
+                if (self.__output_path / temp_name).exists(): 
+                    os.remove(self.__output_path / "temp_audio.mp4")
+                out = self.stream_dict["audio"]["obj"].download(output_path=self.__output_path,
+                                                                filename=str(temp_name))
             else:
                 self.set_YouTube(url)
-                out = self.stream_dict["audio"]["obj"].download(output_path=self.output_path, 
-                                                                filename=self.yt_info["title"]+'.mp3', skip_existing=True)
+                out = self.stream_dict["audio"]["obj"].download(output_path=self.__output_path, 
+                                                                filename=self.info["title"].replace('/', '')+'.mp3', skip_existing=True)
+            print(out)
+            self.progress[num] = 100
+            time.sleep(1)
             return out
         except Exception as e:
             print(e)
             print("[ERROR] Download audio Failed.")
             return None
+        
