@@ -14,7 +14,7 @@ from Circular_Queue import Circular_Queue
 # global
 LOGGING_FORMAT = '%(asctime)s %(levelname)s: %(message)s'
 DATE_FORMAT = '%Y%m%d %H:%M:%S'
-logging.basicConfig(level=logging.WARNING, filename=Path(__file__).parent.absolute() / 'mylog.log', filemode='a+',
+logging.basicConfig(level=logging.INFO, filename='mylog.log', filemode='w+',
                     format=LOGGING_FORMAT, datefmt=DATE_FORMAT)
 # progress sync update
 class progressThread(QThread):
@@ -76,7 +76,7 @@ class mainWindow(QMainWindow):
                 yield str(i)
         self.random_num = get_random()
         self.progress = {}
-        self.MAX_THREADING = 3 if multiprocessing.cpu_count() // 2 >= 3 else 2
+        self.MAX_THREADING = 4 if multiprocessing.cpu_count() // 2 >= 4 else 1
         self.Qthread_queue = Circular_Queue(500)
         self.start, self.end = 0, 0 
     # css
@@ -115,6 +115,7 @@ class mainWindow(QMainWindow):
             logging.warn(e)
     def addThread(self, t):
         while self.Qthread_queue.isFull():
+            print("wait")
             time.sleep(1)
             QCoreApplication.processEvents()
         self.Qthread_queue.enQueue(t)
@@ -246,7 +247,7 @@ class mainWindow(QMainWindow):
         self.addThread(t)
     def playlistThread(self, url, res):
         for u in Playlist(url).video_urls:
-            info_dict, streams_dict = self.get_yt_info(u, res) if res == 8787 else self.get_yt_info(u)
+            info_dict, streams_dict = self.get_yt_info(u, audio_only=True) if res == 8787 else self.get_yt_info(u)
             if info_dict != None:
                 if res != 8787:
                     res = next(iter(streams_dict))
@@ -282,7 +283,7 @@ class mainWindow(QMainWindow):
                 out = str(self.output_path / stream.default_filename)
                 if not Path(out).exists():
                     temp = stream.download(output_path=self.output_path, 
-                                                    filename=next(self.random_num)+".mp4", skip_existing=True)
+                                                    filename=next(self.random_num)+".mp4", skip_existing=False)
                     if res == 8787: # mp4 to mp3
                         out = out[:-4]+".mp3"
                         if not Path(out).exists():
@@ -291,13 +292,16 @@ class mainWindow(QMainWindow):
                             os.remove(temp)
                     elif not stream.includes_audio_track: # video only
                         audio = streams_dict[8787].download(output_path=self.output_path, 
-                                                            filename=next(self.random_num)+".mp4", skip_existing=True)
+                                                            filename=next(self.random_num)+".mp4", skip_existing=False)
                         self.progress[stream] = 87
                         self.merge(temp, audio, out)
+                    else:
+                        os.rename(temp, out)
                 logging.info(out)
                 self.progress[stream] = 100
         except PermissionError:
             logging.error("[PermissionError] Download Thread error.")
+            print("Download Thread error.Download Thread error.Download Thread error.Download Thread error.Download Thread error.Download Thread error.")
             os.remove(temp)
             os.remove(audio)
 # progress 
@@ -350,7 +354,7 @@ class mainWindow(QMainWindow):
             ffmp4 = ffmpeg.input(mp4)
             audio = ffmp4.audio
             go = ffmpeg.output(audio, file_name)
-            ffmpeg.run(go, overwrite_output=True, capture_stdout=False, capture_stderr=False)
+            ffmpeg.run(go, overwrite_output=True)
             logging.info("mp4 to mp3 successed.")
             os.remove(mp4)
         except ffmpeg.Error as e:
@@ -366,7 +370,7 @@ class mainWindow(QMainWindow):
             ffaudio = ffmpeg.input(audio)
             ffmpeg.concat(ffvideo, ffaudio, v=1, a=1) \
                 .output(out) \
-                .run(overwrite_output=True, capture_stdout=False, capture_stderr=False)#capture_stdout=False, capture_stderr=True)
+                .run(overwrite_output=True)#capture_stdout=False, capture_stderr=True)
             os.remove(video)
             os.remove(audio)
             logging.info("Merge successed.")
