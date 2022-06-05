@@ -76,7 +76,7 @@ class mainWindow(QMainWindow):
                 yield str(i)
         self.random_num = get_random()
         self.progress = {}
-        self.MAX_THREADING = 4 if multiprocessing.cpu_count() // 2 >= 4 else 1
+        self.MAX_THREADING = 3 if multiprocessing.cpu_count() // 2 >= 3 else 1
         self.Qthread_queue = Circular_Queue(500)
         self.start, self.end = 0, 0 
     # css

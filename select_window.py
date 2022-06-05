@@ -1,7 +1,7 @@
-from qt_material import apply_stylesheet
 from PyQt6.QtWidgets import * 
 from PyQt6.QtGui import * 
-from PyQt6.QtCore import *
+from PyQt6.QtCore import * 
+from qt_material import apply_stylesheet
 import pyperclip# clipboard
 # my lib
 class select_win(QDialog):
