@@ -6,29 +6,44 @@ import pyperclip, sys# clipboard
 from pytube import YouTube, Playlist
 from pathlib import Path
 import ffmpeg, re
-import threading, urllib.request, os, logging, time
+import urllib.request, os, logging, random, time
+import threading, multiprocessing
 # my lib 
 from select_window import select_win, playlist_win
-
+from Circular_Queue import Circular_Queue
 # global
 LOGGING_FORMAT = '%(asctime)s %(levelname)s: %(message)s'
 DATE_FORMAT = '%Y%m%d %H:%M:%S'
-logging.basicConfig(level=logging.WARNING, #filename='mylog.log', filemode='a+',
+logging.basicConfig(level=logging.WARNING, filename=Path(__file__).parent.absolute() / 'mylog.log', filemode='a+',
                     format=LOGGING_FORMAT, datefmt=DATE_FORMAT)
-
+# progress sync update
 class progressThread(QThread):
-    signal = pyqtSignal(int)
-    def __init__(self):
+    def __init__(self, model, progress, it_progress, stream):
         QThread.__init__(self)
+        self.model = model
+        self.progress = progress
+        self.it_progress = it_progress
+        self.stream = stream
         self.over = False
     def __del__(self):
         self.wait()
     def run(self):
         # your logic here
-        while not self.over:      
-            self.signal.emit(1)
-            time.sleep(1)
+        try:
+            while not self.over:      
+                val = self.progress[self.stream]
+                if val <= 100:
+                    self.model.setItemData(self.it_progress.index(),
+                        {Qt.ItemDataRole.UserRole+1000:val}) # let my progress item reflash
+                    if val == 100: 
+                        self.over = True
+                time.sleep(1)
+        except RuntimeError as e :   
+            self.progress[self.stream] = -1
+            logging.error(e) 
+            self.exit()
         self.exit()
+# draws progress
 class ProgressDelegate(QStyledItemDelegate):
     def paint(self, painter, option, index):
         progress = index.data(Qt.ItemDataRole.UserRole + 1000)
@@ -54,10 +69,16 @@ class mainWindow(QMainWindow):
         super().__init__()
         self.output_path = Path(str(Path.home() / "Downloads"))
         self.RES = ("4320p", "2160p", "1080p", "720p", "480p")
-        self.MAX_PROGRESS = 10
-        self.progress_num = 0
-        self.Qthread = {}
+        def get_random():
+            temp = [i for i in range(1, 10000)]
+            random.shuffle(temp)
+            for i in temp:
+                yield str(i)
+        self.random_num = get_random()
         self.progress = {}
+        self.MAX_THREADING = 3 if multiprocessing.cpu_count() // 2 >= 3 else 2
+        self.Qthread_queue = Circular_Queue(500)
+        self.start, self.end = 0, 0 
     # css
         apply_stylesheet(self, theme='dark_pink.xml')
     # popup
@@ -74,7 +95,7 @@ class mainWindow(QMainWindow):
         self.centralwidget = QWidget(self)
         self.setCentralWidget(self.centralwidget)
         self.set_up_btn()   
-        #self.set_bottom_btn() 
+        # self.set_bottom_btn() 
         self.set_download_area()
         
         progress_delegate = ProgressDelegate(self.list_view)
@@ -82,6 +103,21 @@ class mainWindow(QMainWindow):
         self.model = QStandardItemModel(0, 3)
         self.model.setHorizontalHeaderLabels(["Image","Title", "Progress"])
         QMetaObject.connectSlotsByName(self)
+        self.timer = QTimer()
+        self.timer.timeout.connect(self.start_Qthread)
+        self.timer.start(500)  # this will emit every second
+    def start_Qthread(self):
+        try:
+            if not self.Qthread_queue.isEmpty() and threading.active_count() <= self.MAX_THREADING: # cpu_percent
+                t = self.Qthread_queue.deQueue()
+                t.start()
+        except Exception as e:
+            logging.warn(e)
+    def addThread(self, t):
+        while self.Qthread_queue.isFull():
+            time.sleep(1)
+            QCoreApplication.processEvents()
+        self.Qthread_queue.enQueue(t)
     def set_download_area(self):
         self.download_area = QScrollArea(self.centralwidget)
         self.download_area.setGeometry(QRect(10, 80, 640, 500))
@@ -165,46 +201,30 @@ class mainWindow(QMainWindow):
     #     self.delete_btn.setText("刪除")
     #     self.clear_btn.setText("清空")
     # def delete_rows_event(self):
-    #     select_row = []                                                      
-    #     for model_index in self.list_view.selectionModel().selectedIndexes():       
-    #         index = QPersistentModelIndex(model_index)         
-    #         select_row.append(index)        
-    #     for index in select_row:          
-    #         self.model.removeRow(index.row())
-    # def clear_event(self):
-    #     self.model.removeRows(0, self.model.rowCount())
+        # select_row = []                                                      
+        # for model_index in self.list_view.selectionModel().selectedIndexes():       
+        #     index = QPersistentModelIndex(model_index)         
+        #     select_row.append(index)        
+        # for index in select_row:          
+        #     self.model.removeRow(index.row())
+    def clear_event(self):
+        self.model.removeRows(0, self.model.rowCount())
     def select_output_event(self):
-        self.output_path = str(QFileDialog.getExistingDirectory(self, "Select Directory"))
+        """set output path use QFileDialog.getExistingDirectory"""
+        self.output_path = Path(QFileDialog.getExistingDirectory(self, "Select Directory"))
         logging.info("set output path : {}".format(self.output_path))
-    def get_video_ID(self, url):
-        """It will return YouTube's ID"""
-        youtube_regex = r"^(?:https?:\/\/)?(?:www\.)?(?:youtu\.be\/|youtube\.com\/(?:embed\/|v\/|watch\?v=|watch\?.+&v=))(?P<video_ID>(\w|-)[^&]+)(?:\S+)?$"
-        sreMatch = re.match(youtube_regex, url)
-        if sreMatch != None:
-            return sreMatch.group("video_ID")
-        else: 
-            logging.warning("Not a YouTube's URL.")
-            return None
-    def download_audio_event(self):
-
-        info_dict, streams_dict = self.get_yt_info()
-        if info_dict == None: return
-        self.add_QTableView_item(info_dict, streams_dict[8787])
-        t = threading.Thread(target=self.download, args =(streams_dict, 8787,))
-        t.setDaemon(True)
-        t.start()
-    def download_video_event(self):
-
-        info_dict, streams_dict = self.get_yt_info()
-        if info_dict == None: return
-        res = self.select_win.start(info_dict, streams_dict)
-        if res == '': return
-        self.add_QTableView_item(info_dict, streams_dict[res])
-        t = threading.Thread(target=self.download, args =(streams_dict, res,))
-        t.setDaemon(True)
-        t.start()
-        #self.download_video(streams_dict, res)
         
+    def download_audio_event(self):
+        info_dict, streams_dict = self.get_yt_info(audio_only=True)
+        if info_dict != None:
+            self.download(info_dict, streams_dict, 8787)
+    def download_video_event(self):
+        info_dict, streams_dict = self.get_yt_info()
+        if info_dict != None:  
+            res = self.select_win.start(info_dict, streams_dict)
+            if res == '': return
+            self.download(info_dict, streams_dict, res)
+            
     def download_playlist_event(self):
         def get_playlist_ID(url):
             """It will return YouTube's Playlist ID"""
@@ -220,32 +240,21 @@ class mainWindow(QMainWindow):
             self.error_dialog.critical(self, "錯誤", "此視頻無播放清單")
             return
         res = self.playlist_win.start()
+        if res == 0: return 
+        t = threading.Thread(target=self.playlistThread, args =(url,res,))
+        t.setDaemon(True)
+        self.addThread(t)
+    def playlistThread(self, url, res):
         for u in Playlist(url).video_urls:
-            info_dict, streams_dict = self.get_yt_info(u)
-            if info_dict == None: return
-            if res != 8787:
-                res = next(iter(streams_dict))
-            self.add_QTableView_item(info_dict, streams_dict[res])
-            t = threading.Thread(target=self.download, args =(streams_dict, res,))
-            t.setDaemon(True)
-            t.start()
-            QCoreApplication.processEvents()
+            info_dict, streams_dict = self.get_yt_info(u, res) if res == 8787 else self.get_yt_info(u)
+            if info_dict != None:
+                if res != 8787:
+                    res = next(iter(streams_dict))
+                self.download(info_dict, streams_dict, res)
                 
-    def signal_accept(self, it_progress, stream, maxVal):
-        try:
-            val = self.progress[stream]
-            if val <= 100:
-                self.model.setItemData(it_progress.index(),
-                    {Qt.ItemDataRole.UserRole+1000:val}) # let my progress item reflash
-                if val == 100: 
-                    self.Qthread[stream].over = True
-                    self.progress_num -= 1
-        except RuntimeError as e :   
-            logging.error(e) 
-            self.progress[stream] = -1
-            self.progress_num -= 1
-                
-    def add_QTableView_item(self, info_dict, stream):
+    def download(self, info_dict, streams_dict, res):
+    # add_QTableView_item
+        stream = streams_dict[res]
         pixmap = QPixmap(info_dict["thumbnail_path"])
         pixmap.scaled(25,25, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.FastTransformation)
         it_image = QStandardItem(QIcon(pixmap), '')
@@ -254,23 +263,60 @@ class mainWindow(QMainWindow):
 
         it_progress = QStandardItem()
         it_progress.setData(0, Qt.ItemDataRole.UserRole+1000)
-        while self.progress_num == self.MAX_PROGRESS:
-            logging.warning("Thread full now use [{}]. Max Size is {}".format(self.progress_num, self.MAX_PROGRESS))
-            time.sleep(1)
-        self.progress_num += 1
         self.progress.update({stream: 0})
-        self.Qthread.update({stream: progressThread()})
-        self.Qthread[stream].signal.connect(lambda:self.signal_accept(it_progress, stream,  1))
         self.model.appendRow([it_image, it_title, it_progress])
         self.list_view.setModel(self.model)
-        self.Qthread[stream].start()
+    # thread
+        p = progressThread(self.model, self.progress, it_progress, stream)
+        t = threading.Thread(target=self.downloadThread, args =(streams_dict, res,))
+        t.setDaemon(True)
+        self.addThread(p)
+        self.addThread(t)
+
+    def downloadThread(self, streams_dict, res):
+        """ Download YouTube"""
+    # download
+        stream = streams_dict[res]
+        try:
+            if res != '':
+                out = str(self.output_path / stream.default_filename)
+                if not Path(out).exists():
+                    temp = stream.download(output_path=self.output_path, 
+                                                    filename=next(self.random_num)+".mp4", skip_existing=True)
+                    if res == 8787: # mp4 to mp3
+                        out = out[:-4]+".mp3"
+                        if not Path(out).exists():
+                            self.mp4_to_mp3(temp, str(out))
+                        else: 
+                            os.remove(temp)
+                    elif not stream.includes_audio_track: # video only
+                        audio = streams_dict[8787].download(output_path=self.output_path, 
+                                                            filename=next(self.random_num)+".mp4", skip_existing=True)
+                        self.progress[stream] = 87
+                        self.merge(temp, audio, out)
+                logging.info(out)
+                self.progress[stream] = 100
+        except PermissionError:
+            logging.error("[PermissionError] Download Thread error.")
+            os.remove(temp)
+            os.remove(audio)
+# progress 
     def my_progress_bar(self, stream, chunk, data_remaining):
         """progress_callback to use"""
         total_size = stream.filesize
         percent = 2*int(50*((total_size - data_remaining) / total_size)) - 1
         self.progress[stream] = percent
 # yt
-    def get_yt_info(self, url=''):
+    def get_video_ID(self, url):
+        """It will return YouTube's ID"""
+        youtube_regex = r"^(?:https?:\/\/)?(?:www\.)?(?:youtu\.be\/|youtube\.com\/(?:embed\/|v\/|watch\?v=|watch\?.+&v=))(?P<video_ID>(\w|-)[^&]+)(?:\S+)?$"
+        sreMatch = re.match(youtube_regex, url)
+        if sreMatch != None:
+            return sreMatch.group("video_ID")
+        else: 
+            logging.warning("Not a YouTube's URL.")
+            return None 
+    def get_yt_info(self, url='', audio_only=False):
         if url == '': url=pyperclip.paste()
         id = self.get_video_ID(url)
         if id == None: 
@@ -279,11 +325,10 @@ class mainWindow(QMainWindow):
         yt = YouTube(url, on_progress_callback=self.my_progress_bar)
         Path("./img/").mkdir(parents=True, exist_ok=True)
         img = Path("./img/"+id+".jpg")
-        info_dict = {}
         streams_dict = {}
         if not img.exists():
             urllib.request.urlretrieve(yt.thumbnail_url, img) # download img
-        info_dict.update({
+        info_dict ={
                 "title": yt.title, 
                 "thumbnail_path": str(img),
                 "author": yt.author,
@@ -291,67 +336,48 @@ class mainWindow(QMainWindow):
                 "publish_date": yt.publish_date,
                 "views": yt.views,
                 "play_len": yt.length
-                })
-        for res in self.RES:
-            video_obj = yt.streams.filter(mime_type="video/mp4",res=res).first()
-            if video_obj != None:
-                streams_dict.update({int(res.replace("p", "")): video_obj})
+                }
+        if not audio_only:
+            for res in self.RES:
+                video_obj = yt.streams.filter(res=res).first()
+                if video_obj != None:
+                    streams_dict.update({int(res[:-1]): video_obj})
         streams_dict.update({8787: yt.streams.get_audio_only() }) # audio
         return info_dict, streams_dict
     def mp4_to_mp3(self, mp4, file_name):
         # mp4 to mp3
         try:
-            if not Path(file_name).exists():
-                ffmp4 = ffmpeg.input(mp4)
-                audio = ffmp4.audio
-                go = ffmpeg.output(audio, file_name)
-                ffmpeg.run(go, overwrite_output=True) #capture_stdout=False, capture_stderr=True, )
-                logging.info("mp4 to mp3 successed.")
-                os.remove(mp4)
+            ffmp4 = ffmpeg.input(mp4)
+            audio = ffmp4.audio
+            go = ffmpeg.output(audio, file_name)
+            ffmpeg.run(go, overwrite_output=True, capture_stdout=False, capture_stderr=False)
+            logging.info("mp4 to mp3 successed.")
+            os.remove(mp4)
         except ffmpeg.Error as e:
             logging.error("mp4 to mp3 error.")
+            os.remove(mp4)
+            os.remove(file_name)
             # print(e.stdout.decode("utf-8") )
             # print(e.stderr.decode("utf-8") )
-    def download(self, streams_dict, res):
-        try:
-            if res != '':
-                out = streams_dict[res].download(output_path=self.output_path, skip_existing=True)
-                if not streams_dict[res].includes_audio_track: # video only
-                    audio = streams_dict[8787].download(output_path=self.output_path, 
-                                                        filename=str(round(time.time()))+".mp4", skip_existing=True)
-                    self.merge(out, audio)
-                if res == 8787:
-                    file_name = out.replace(".mp4", ".mp3")
-                    if not Path(file_name).exists():
-                        self.mp4_to_mp3(out, file_name)
-                logging.info(out)
-                self.progress[streams_dict[res]] = 100
-        except PermissionError:
-            time.sleep(2)
-            self.download(streams_dict, res)
-    def merge(self, video, audio):
+    def merge(self, video, audio, out):
         """Merge audio & video"""
         try: 
-            temp_name = Path(video).parent / (str(round(time.time())+1)+".mp4")
-            os.rename(video, temp_name)
-            ffvideo = ffmpeg.input(str(temp_name))
+            ffvideo = ffmpeg.input(video)
             ffaudio = ffmpeg.input(audio)
             ffmpeg.concat(ffvideo, ffaudio, v=1, a=1) \
-                .output(video) \
-                .run(overwrite_output=True)#capture_stdout=False, capture_stderr=True)
-            os.remove(temp_name)
+                .output(out) \
+                .run(overwrite_output=True, capture_stdout=False, capture_stderr=False)#capture_stdout=False, capture_stderr=True)
+            os.remove(video)
             os.remove(audio)
             logging.info("Merge successed.")
+            return out
         except ffmpeg.Error as e:
-            os.remove(temp_name)
+            os.remove(video)
             os.remove(audio)
+            os.remove(out)
             logging.error("Merge audio & video error.")
             # print(e.stdout.decode("utf-8") )
             # print(e.stderr.decode("utf-8") ) 
-    # def closeEvent(self, a0: QCloseEvent):
-    #     for key, thread in self.progress.items():
-    #         thread.ter
-    #     return super().closeEvent(a0)
 if __name__ == '__main__':
     app = QApplication(sys.argv)
     myWin = mainWindow()

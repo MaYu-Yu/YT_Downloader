@@ -131,11 +131,15 @@ class playlist_win(QWidget):
         self.msg_box.setIcon(QMessageBox.Icon.Question)
         self.msg_box.setWindowTitle('下載播放清單')
         self.msg_box.setText('選擇視頻或是音樂')
+        self.audio_btn = self.msg_box.addButton('音樂', QMessageBox.ButtonRole.AcceptRole)
         self.video_btn = self.msg_box.addButton('視頻', QMessageBox.ButtonRole.YesRole)
-        self.audio_btn = self.msg_box.addButton('音樂', QMessageBox.ButtonRole.ApplyRole)
+        self.cancel_btn = self.msg_box.addButton(QMessageBox.StandardButton.Cancel)
+        self.cancel_btn.setHidden(True)
     def start(self):
         self.msg_box.exec()
         if self.msg_box.clickedButton() == self.audio_btn:
             return 8787
+        elif self.msg_box.clickedButton() == self.video_btn:
+            return 1
         else:
-            return 480
+            return 0
