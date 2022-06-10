@@ -2,7 +2,7 @@ from PyQt6.QtWidgets import *
 from PyQt6.QtGui import * 
 from PyQt6.QtCore import *
 from qt_material import apply_stylesheet
-import pyperclip, sys# clipboard
+import pyperclip, sys # clipboard
 from pytube import YouTube, Playlist
 from pathlib import Path
 import ffmpeg, re
@@ -14,11 +14,14 @@ from eyed3.id3.frames import ImageFrame
 # my lib 
 from select_window import select_win, playlist_win
 from Circular_Queue import Circular_Queue
+from delete_temp import delDir
 # global
-LOGGING_FORMAT = '%(asctime)s %(levelname)s: %(message)s'
+delDir('./img/', t=259200)
+LOGGING_FORMAT = '%(asctime)s - %(name)s - %(levelname)s - %(message)s [line:%(lineno)d]'
 DATE_FORMAT = '%Y%m%d %H:%M:%S'
-logging.basicConfig(level=logging.INFO, filename='mylog.log', filemode='w+',
-                    format=LOGGING_FORMAT, datefmt=DATE_FORMAT)
+logging.basicConfig(level=logging.INFO, filename='./img/mylog.log', filemode='a+',
+                    format=LOGGING_FORMAT, datefmt=DATE_FORMAT, encoding='utf-8')
+
 # progress sync update
 class progressThread(QThread):
     def __init__(self, model, progress, it_progress, stream):
@@ -89,7 +92,6 @@ class mainWindow(QMainWindow):
         self.playlist_win = playlist_win()
     # mainWindow setting
         self.setWindowTitle("YouTube下載器")
-        #self.error_dialog.
         self.error_dialog = QMessageBox()
         self.move(QPoint(800, 50))
         self.setFixedSize(658, 658)
@@ -115,10 +117,10 @@ class mainWindow(QMainWindow):
                 t = self.Qthread_queue.deQueue()
                 t.start()
         except Exception as e:
+            logging.error("Qthread start error.")
             logging.warn(e)
     def addThread(self, t):
         while self.Qthread_queue.isFull():
-            print("wait")
             time.sleep(1)
             QCoreApplication.processEvents()
         self.Qthread_queue.enQueue(t)
@@ -303,9 +305,9 @@ class mainWindow(QMainWindow):
                         os.rename(temp, out)
                 logging.info(out)
                 self.progress[stream] = 100
-        except PermissionError:
-            logging.error("[PermissionError] Download Thread error.")
-            print("Download Thread error.Download Thread error.Download Thread error.Download Thread error.Download Thread error.Download Thread error.")
+        except Exception as e:
+            logging.error("Download Thread error.")
+            logging.error(e)
             os.remove(temp)
             os.remove(audio)
 # progress 
@@ -328,29 +330,34 @@ class mainWindow(QMainWindow):
         if url == '': url=pyperclip.paste()
         id = self.get_video_ID(url)
         if id == None: 
-            self.error_dialog.critical(self, "錯誤", "YouTube網址錯誤")
+            self.error_dialog.warning(self, "錯誤", "YouTube網址錯誤")
             return None, None
         yt = YouTube(url, on_progress_callback=self.my_progress_bar)
         Path("./img/").mkdir(parents=True, exist_ok=True)
         img = Path("./img/"+id+".jpg")
         streams_dict = {}
-        if not img.exists():
-            urllib.request.urlretrieve(yt.thumbnail_url, img) # download img
-        info_dict ={
-                "title": yt.title, 
-                "thumbnail_path": str(img),
-                "author": yt.author,
-                # "captions": yt.captions,# 字幕
-                "publish_date": yt.publish_date,
-                "views": yt.views,
-                "play_len": yt.length
-                }
-        if not audio_only:
-            for res in self.RES:
-                video_obj = yt.streams.filter( mime_type="video/mp4", res=res).first()
-                if video_obj != None:
-                    streams_dict.update({int(res[:-1]): video_obj})
-        streams_dict.update({8787: yt.streams.filter( mime_type="audio/mp4").order_by('abr').desc().first() }) # audio
+        try:
+            if not img.exists():
+                urllib.request.urlretrieve(yt.thumbnail_url, img) # download img
+            info_dict ={
+                    "title": yt.title, 
+                    "thumbnail_path": str(img),
+                    "author": yt.author,
+                    # "captions": yt.captions,# 字幕
+                    "publish_date": yt.publish_date,
+                    "views": yt.views,
+                    "play_len": yt.length
+                    }
+            if not audio_only:
+                for res in self.RES:
+                    video_obj = yt.streams.filter( mime_type="video/mp4", res=res).first()
+                    if video_obj != None:
+                        streams_dict.update({int(res[:-1]): video_obj})
+            streams_dict.update({8787: yt.streams.filter( mime_type="audio/mp4").order_by('abr').desc().first() }) # audio
+        except Exception as e:
+            logging.error("get_yt_info error.")
+            logging.error(e)
+            return None, None
         return info_dict, streams_dict
     def add_title(self, file_name, info_dict):
         audioFile = eyed3.load(file_name)
