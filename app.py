@@ -346,7 +346,7 @@ class mainWindow(QMainWindow):
                 video_obj = yt.streams.filter(res=res).first()
                 if video_obj != None:
                     streams_dict.update({int(res[:-1]): video_obj})
-        streams_dict.update({8787: yt.streams.get_audio_only() }) # audio
+        streams_dict.update({8787: yt.streams.filter(type="audio").first() }) # audio
         return info_dict, streams_dict
     def mp4_to_mp3(self, mp4, file_name):
         # mp4 to mp3
