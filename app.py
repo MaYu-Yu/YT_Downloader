@@ -8,6 +8,9 @@ from pathlib import Path
 import ffmpeg, re
 import urllib.request, os, logging, random, time
 import threading, multiprocessing
+# album
+import eyed3
+from eyed3.id3.frames import ImageFrame
 # my lib 
 from select_window import select_win, playlist_win
 from Circular_Queue import Circular_Queue
@@ -76,7 +79,7 @@ class mainWindow(QMainWindow):
                 yield str(i)
         self.random_num = get_random()
         self.progress = {}
-        self.MAX_THREADING = 3 if multiprocessing.cpu_count() // 2 >= 3 else 1
+        self.MAX_THREADING = 4 if multiprocessing.cpu_count() // 2 >= 4 else multiprocessing.cpu_count() // 2
         self.Qthread_queue = Circular_Queue(500)
         self.start, self.end = 0, 0 
     # css
@@ -269,12 +272,12 @@ class mainWindow(QMainWindow):
         self.list_view.setModel(self.model)
     # thread
         p = progressThread(self.model, self.progress, it_progress, stream)
-        t = threading.Thread(target=self.downloadThread, args =(streams_dict, res,))
+        t = threading.Thread(target=self.downloadThread, args =(info_dict, streams_dict, res,))
         t.setDaemon(True)
         self.addThread(p)
         self.addThread(t)
 
-    def downloadThread(self, streams_dict, res):
+    def downloadThread(self, info_dict, streams_dict, res):
         """ Download YouTube"""
     # download
         stream = streams_dict[res]
@@ -288,6 +291,7 @@ class mainWindow(QMainWindow):
                         out = out[:-4]+".mp3"
                         if not Path(out).exists():
                             self.mp4_to_mp3(temp, str(out))
+                            self.add_title(out, info_dict)
                         else: 
                             os.remove(temp)
                     elif not stream.includes_audio_track: # video only
@@ -343,17 +347,26 @@ class mainWindow(QMainWindow):
                 }
         if not audio_only:
             for res in self.RES:
-                video_obj = yt.streams.filter(res=res).first()
+                video_obj = yt.streams.filter( mime_type="video/mp4", res=res).first()
                 if video_obj != None:
                     streams_dict.update({int(res[:-1]): video_obj})
-        streams_dict.update({8787: yt.streams.filter(type="audio").first() }) # audio
+        streams_dict.update({8787: yt.streams.filter( mime_type="audio/mp4").order_by('abr').desc().first() }) # audio
         return info_dict, streams_dict
+    def add_title(self, file_name, info_dict):
+        audioFile = eyed3.load(file_name)
+        if (audioFile.tag == None):
+            audioFile.initTag()
+        audioFile.tag.title = info_dict["title"]
+        audioFile.tag.artist = info_dict["author"]
+        audioFile.tag.album = info_dict["author"]
+        audioFile.tag.images.set(ImageFrame.FRONT_COVER, open(info_dict["thumbnail_path"],'rb').read(), 'image/jpeg')
+        audioFile.tag.save()
     def mp4_to_mp3(self, mp4, file_name):
         # mp4 to mp3
         try:
             ffmp4 = ffmpeg.input(mp4)
             audio = ffmp4.audio
-            go = ffmpeg.output(audio, file_name)
+            go = ffmpeg.output(audio, file_name, q='1')
             ffmpeg.run(go, overwrite_output=True)
             logging.info("mp4 to mp3 successed.")
             os.remove(mp4)
@@ -369,7 +382,7 @@ class mainWindow(QMainWindow):
             ffvideo = ffmpeg.input(video)
             ffaudio = ffmpeg.input(audio)
             ffmpeg.concat(ffvideo, ffaudio, v=1, a=1) \
-                .output(out) \
+                .output(out, q='1') \
                 .run(overwrite_output=True)#capture_stdout=False, capture_stderr=True)
             os.remove(video)
             os.remove(audio)
