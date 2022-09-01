@@ -1,3 +1,4 @@
+# 快取path更改、紀錄
 from PyQt6.QtWidgets import * 
 from PyQt6.QtGui import * 
 from PyQt6.QtCore import *
@@ -12,9 +13,9 @@ import threading, multiprocessing
 import eyed3
 from eyed3.id3.frames import ImageFrame
 # my lib 
-from select_window import select_win, playlist_win
-from Circular_Queue import Circular_Queue
-from delete_temp import delDir
+from Scripts.select_window import select_win, playlist_win
+from Scripts.Circular_Queue import Circular_Queue
+from Scripts.delete_temp import delDir
 # global
 delDir('./img/', t=259200)
 LOGGING_FORMAT = '%(asctime)s - %(name)s - %(levelname)s - %(message)s [line:%(lineno)d]'
@@ -82,6 +83,7 @@ class mainWindow(QMainWindow):
                 yield str(i)
         self.random_num = get_random()
         self.progress = {}
+    #limit threading
         self.MAX_THREADING = 4 if multiprocessing.cpu_count() // 2 >= 4 else multiprocessing.cpu_count() // 2
         self.Qthread_queue = Circular_Queue(500)
         self.start, self.end = 0, 0 
@@ -374,15 +376,15 @@ class mainWindow(QMainWindow):
             ffmp4 = ffmpeg.input(mp4)
             audio = ffmp4.audio
             go = ffmpeg.output(audio, file_name, q='1')
-            ffmpeg.run(go, overwrite_output=True)
+            ffmpeg.run(go, overwrite_output=True, cmd=r'ffmpeg.exe')
             logging.info("mp4 to mp3 successed.")
             os.remove(mp4)
         except ffmpeg.Error as e:
             logging.error("mp4 to mp3 error.")
             os.remove(mp4)
             os.remove(file_name)
-            # print(e.stdout.decode("utf-8") )
-            # print(e.stderr.decode("utf-8") )
+            #print(e.stdout.decode("utf-8") )
+            #print(e.stderr.decode("utf-8") )
     def merge(self, video, audio, out):
         """Merge audio & video"""
         try: 
@@ -390,7 +392,7 @@ class mainWindow(QMainWindow):
             ffaudio = ffmpeg.input(audio)
             ffmpeg.concat(ffvideo, ffaudio, v=1, a=1) \
                 .output(out, q='1') \
-                .run(overwrite_output=True)#capture_stdout=False, capture_stderr=True)
+                .run(overwrite_output=True, cmd=r'ffmpeg.exe')#capture_stdout=False, capture_stderr=True)
             os.remove(video)
             os.remove(audio)
             logging.info("Merge successed.")
@@ -400,8 +402,8 @@ class mainWindow(QMainWindow):
             os.remove(audio)
             os.remove(out)
             logging.error("Merge audio & video error.")
-            # print(e.stdout.decode("utf-8") )
-            # print(e.stderr.decode("utf-8") ) 
+            #print(e.stdout.decode("utf-8") )
+            #print(e.stderr.decode("utf-8") ) 
 if __name__ == '__main__':
     app = QApplication(sys.argv)
     myWin = mainWindow()
