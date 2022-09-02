@@ -1,4 +1,8 @@
 /__pycache__/
 /venv/
 /dist/
+/build/
+/img/
+/temp/
 *.exe
+app.spec

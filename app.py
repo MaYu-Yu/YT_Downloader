@@ -11,19 +11,19 @@ import urllib.request, os, logging, random, time
 import threading, multiprocessing
 # album
 import eyed3
-from eyed3.id3.frames import ImageFrame
 # my lib 
 from Scripts.select_window import select_win, playlist_win
 from Scripts.Circular_Queue import Circular_Queue
 from Scripts.delete_temp import delDir
-# global
+
+# log黨建立
 delDir('./img/', t=259200)
 LOGGING_FORMAT = '%(asctime)s - %(name)s - %(levelname)s - %(message)s [line:%(lineno)d]'
 DATE_FORMAT = '%Y%m%d %H:%M:%S'
 logging.basicConfig(level=logging.INFO, filename='./img/mylog.log', filemode='a+',
                     format=LOGGING_FORMAT, datefmt=DATE_FORMAT, encoding='utf-8')
 
-# progress sync update
+# progress bar 同步更新
 class progressThread(QThread):
     def __init__(self, model, progress, it_progress, stream):
         QThread.__init__(self)
@@ -35,7 +35,6 @@ class progressThread(QThread):
     def __del__(self):
         self.wait()
     def run(self):
-        # your logic here
         try:
             while not self.over:      
                 val = self.progress[self.stream]
@@ -50,7 +49,7 @@ class progressThread(QThread):
             logging.error(e) 
             self.exit()
         self.exit()
-# draws progress
+# 畫出progress bar 
 class ProgressDelegate(QStyledItemDelegate):
     def paint(self, painter, option, index):
         progress = index.data(Qt.ItemDataRole.UserRole + 1000)
@@ -71,7 +70,6 @@ class ProgressDelegate(QStyledItemDelegate):
         )
         
 class mainWindow(QMainWindow):
-
     def __init__(self):
         super().__init__()
         self.output_path = Path(str(Path.home() / "Downloads"))
@@ -113,7 +111,9 @@ class mainWindow(QMainWindow):
         self.timer = QTimer()
         self.timer.timeout.connect(self.start_Qthread)
         self.timer.start(500)  # this will emit every second
+# thread控制
     def start_Qthread(self):
+        """ start & control Qthread"""
         try:
             if not self.Qthread_queue.isEmpty() and threading.active_count() <= self.MAX_THREADING: # cpu_percent
                 t = self.Qthread_queue.deQueue()
@@ -122,10 +122,12 @@ class mainWindow(QMainWindow):
             logging.error("Qthread start error.")
             logging.warn(e)
     def addThread(self, t):
+        """ add thread the queue, if the queue is full, wait until the queue is free"""
         while self.Qthread_queue.isFull():
             time.sleep(1)
             QCoreApplication.processEvents()
         self.Qthread_queue.enQueue(t)
+# GUI建立及擺設
     def set_download_area(self):
         self.download_area = QScrollArea(self.centralwidget)
         self.download_area.setGeometry(QRect(10, 80, 640, 500))
@@ -215,13 +217,14 @@ class mainWindow(QMainWindow):
         #     select_row.append(index)        
         # for index in select_row:          
         #     self.model.removeRow(index.row())
-    def clear_event(self):
-        self.model.removeRows(0, self.model.rowCount())
+    # def clear_event(self):
+    #     self.model.removeRows(0, self.model.rowCount())
+    
+# GUI事件
     def select_output_event(self):
         """set output path use QFileDialog.getExistingDirectory"""
         self.output_path = Path(QFileDialog.getExistingDirectory(self, "Select Directory"))
         logging.info("set output path : {}".format(self.output_path))
-        
     def download_audio_event(self):
         info_dict, streams_dict = self.get_yt_info(audio_only=True)
         if info_dict != None:
@@ -232,7 +235,7 @@ class mainWindow(QMainWindow):
             res = self.select_win.start(info_dict, streams_dict)
             if res == '': return
             self.download(info_dict, streams_dict, res)
-            
+# 下載播放清單GUI建立            
     def download_playlist_event(self):
         def get_playlist_ID(url):
             """It will return YouTube's Playlist ID"""
@@ -252,75 +255,145 @@ class mainWindow(QMainWindow):
         t = threading.Thread(target=self.playlistThread, args =(url,res,))
         t.setDaemon(True)
         self.addThread(t)
+# 下載播放清單執行緒
     def playlistThread(self, url, res):
+        """ download playlist thread"""
+        self.duplicate_times = 0
+            
         for u in Playlist(url).video_urls:
             info_dict, streams_dict = self.get_yt_info(u, audio_only=True) if res == 8787 else self.get_yt_info(u)
             if info_dict != None:
+                #if (self.output_path / streams_dict[res]).default_filename.exists() 
                 if res != 8787:
                     res = next(iter(streams_dict))
-                self.download(info_dict, streams_dict, res)
-                
-    def download(self, info_dict, streams_dict, res):
-    # add_QTableView_item
+                self.download(info_dict, streams_dict, res, True)
+# 下載GUI建立                
+    def download(self, info_dict, streams_dict, res, isPlaylist=False):
+        """ add download gui and call downloadThread"""
         stream = streams_dict[res]
-        pixmap = QPixmap(info_dict["thumbnail_path"])
-        pixmap.scaled(25,25, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.FastTransformation)
-        it_image = QStandardItem(QIcon(pixmap), '')
-        it_image.setSizeHint(self.my_icon_size)
-        it_title = QStandardItem(info_dict["title"])
+    # 重複下載判斷
+        stream_file = Path(self.output_path / stream.default_filename) if res != 8787 else \
+            Path(self.output_path / (stream.default_filename[:-4]+".mp3"))
+        if stream_file.exists():
+            if not isPlaylist:
+                self.error_dialog.warning(self, "錯誤", "重複下載\n{}".format(str(stream_file)))
+        else:
+        # add_QTableView_item    
+            pixmap = QPixmap(info_dict["thumbnail_path"])
+            pixmap.scaled(25,25, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.FastTransformation)
+            it_image = QStandardItem(QIcon(pixmap), '')
+            it_image.setSizeHint(self.my_icon_size)
+            it_title = QStandardItem(info_dict["title"])
 
-        it_progress = QStandardItem()
-        it_progress.setData(0, Qt.ItemDataRole.UserRole+1000)
-        self.progress.update({stream: 0})
-        self.model.appendRow([it_image, it_title, it_progress])
-        self.list_view.setModel(self.model)
-    # thread
-        p = progressThread(self.model, self.progress, it_progress, stream)
-        t = threading.Thread(target=self.downloadThread, args =(info_dict, streams_dict, res,))
-        t.setDaemon(True)
-        self.addThread(p)
-        self.addThread(t)
-
+            it_progress = QStandardItem()
+            it_progress.setData(0, Qt.ItemDataRole.UserRole+1000)
+            self.progress.update({stream: 0})
+            self.model.appendRow([it_image, it_title, it_progress])
+            self.list_view.setModel(self.model)
+        # thread
+            p = progressThread(self.model, self.progress, it_progress, stream)
+            t = threading.Thread(target=self.downloadThread, args =(info_dict, streams_dict, res,))
+            t.setDaemon(True)
+            
+            self.addThread(p)
+            self.addThread(t)
+# 下載執行緒
     def downloadThread(self, info_dict, streams_dict, res):
-        """ Download YouTube"""
-    # download
+        """ download thread"""
         stream = streams_dict[res]
         try:
-            if res != '':
-                out = str(self.output_path / stream.default_filename)
+            out = str(self.output_path / stream.default_filename)
+            temp = stream.download(output_path="temp", 
+                                            filename=next(self.random_num)+".mp4", skip_existing=False)
+            if res == 8787: # mp4 to mp3
+                out = out[:-4]+".mp3"
                 if not Path(out).exists():
-                    temp = stream.download(output_path=self.output_path, 
+                    self.mp4_to_mp3(temp, str(out))
+                    self.add_title(out, info_dict)
+                else: 
+                    os.remove(temp)
+            elif not stream.includes_audio_track: # video only
+                audio = streams_dict[8787].download(output_path="temp", 
                                                     filename=next(self.random_num)+".mp4", skip_existing=False)
-                    if res == 8787: # mp4 to mp3
-                        out = out[:-4]+".mp3"
-                        if not Path(out).exists():
-                            self.mp4_to_mp3(temp, str(out))
-                            self.add_title(out, info_dict)
-                        else: 
-                            os.remove(temp)
-                    elif not stream.includes_audio_track: # video only
-                        audio = streams_dict[8787].download(output_path=self.output_path, 
-                                                            filename=next(self.random_num)+".mp4", skip_existing=False)
-                        self.progress[stream] = 87
-                        self.merge(temp, audio, out)
-                    else:
-                        os.rename(temp, out)
-                logging.info(out)
-                self.progress[stream] = 100
+                self.progress[stream] = 87
+                self.merge(temp, audio, out)
+            else:
+                os.rename(temp, out)
+            logging.info(out)
+            self.progress[stream] = 100
         except Exception as e:
             logging.error("Download Thread error.")
             logging.error(e)
             os.remove(temp)
             os.remove(audio)
-# progress 
+# 音樂轉成mp3
+    def mp4_to_mp3(self, mp4, file_name):
+        """mp4 to mp3
+
+        Args:
+            mp4 (_type_): mp4 file_name
+            file_name (_type_): output file_name
+        """
+        # mp4 to mp3
+        try:
+            ffmp4 = ffmpeg.input(mp4)
+            audio = ffmp4.audio
+            go = ffmpeg.output(audio, file_name, q='1')
+            ffmpeg.run(go, overwrite_output=True, cmd=r'ffmpeg.exe')
+            logging.info("mp4 to mp3 successed.")
+            os.remove(mp4)
+        except ffmpeg.Error as e:
+            logging.error("mp4 to mp3 error.")
+            os.remove(mp4)
+            os.remove(file_name)
+            #print(e.stdout.decode("utf-8") )
+            #print(e.stderr.decode("utf-8") )
+            
+# 因為yt最高畫質跟音樂是分開下載的 所以需要合併它們
+    def merge(self, video, audio, out):
+        """Merge audio & video
+
+        Args:
+            video (_type_): video file_name
+            audio (_type_): audio file_name
+            out (_type_): output file_name
+
+        Returns:
+            _type_: output file_name
+        """
+        try: 
+            ffvideo = ffmpeg.input(video)
+            ffaudio = ffmpeg.input(audio)
+            ffmpeg.concat(ffvideo, ffaudio, v=1, a=1) \
+                .output(out, q='1') \
+                .run(overwrite_output=True, cmd=r'ffmpeg.exe')#capture_stdout=False, capture_stderr=True)
+            os.remove(video)
+            os.remove(audio)
+            logging.info("Merge successed.")
+            return out
+        except ffmpeg.Error as e:
+            os.remove(video)
+            os.remove(audio)
+            os.remove(out)
+            logging.error("Merge audio & video error., {}")
+            #print(e.stdout.decode("utf-8") )
+            #print(e.stderr.decode("utf-8") ) 
+            
+# 實時更新progress bar
     def my_progress_bar(self, stream, chunk, data_remaining):
         """progress_callback to use"""
         total_size = stream.filesize
         percent = 2*int(50*((total_size - data_remaining) / total_size)) - 1
         self.progress[stream] = percent
-# yt
+# 獲取影片ID
     def get_video_ID(self, url):
-        """It will return YouTube's ID"""
+        """It will return YouTube's ID
+        Args:
+            url (_str_): YouTube's url
+
+        Returns:
+            _str_: video_ID or None
+        """
         youtube_regex = r"^(?:https?:\/\/)?(?:www\.)?(?:youtu\.be\/|youtube\.com\/(?:embed\/|v\/|watch\?v=|watch\?.+&v=))(?P<video_ID>(\w|-)[^&]+)(?:\S+)?$"
         sreMatch = re.match(youtube_regex, url)
         if sreMatch != None:
@@ -328,7 +401,18 @@ class mainWindow(QMainWindow):
         else: 
             logging.warning("Not a YouTube's URL.")
             return None 
+# 獲取影片的基本資訊
     def get_yt_info(self, url='', audio_only=False):
+        """get Video info
+
+        Args:
+            url (str, optional): YouTube's url. Defaults to ''.
+            audio_only (bool, optional): if: audio only just get audio stream, else: get video stream. Defaults to False.
+
+        Returns:
+            _Dict_: info_dict[title, thumbnail_path, author, captions, publish_date, views, play_len]
+            _Dict_: streams_dict["4320", "2160", "1080", "720", "480", "8787"--is audio]
+        """
         if url == '': url=pyperclip.paste()
         id = self.get_video_ID(url)
         if id == None: 
@@ -345,7 +429,7 @@ class mainWindow(QMainWindow):
                     "title": yt.title, 
                     "thumbnail_path": str(img),
                     "author": yt.author,
-                    # "captions": yt.captions,# 字幕
+                    "captions": yt.captions,# 字幕
                     "publish_date": yt.publish_date,
                     "views": yt.views,
                     "play_len": yt.length
@@ -356,54 +440,30 @@ class mainWindow(QMainWindow):
                     if video_obj != None:
                         streams_dict.update({int(res[:-1]): video_obj})
             streams_dict.update({8787: yt.streams.filter( mime_type="audio/mp4").order_by('abr').desc().first() }) # audio
+            
         except Exception as e:
             logging.error("get_yt_info error.")
             logging.error(e)
             return None, None
         return info_dict, streams_dict
+# 使用eyed3更改下載的音樂資訊
     def add_title(self, file_name, info_dict):
+        """add info in mp3
+
+        Args:
+            file_name (_type_): mp3 file_name
+            info_dict (_str_): info dict
+        """
         audioFile = eyed3.load(file_name)
         if (audioFile.tag == None):
             audioFile.initTag()
         audioFile.tag.title = info_dict["title"]
         audioFile.tag.artist = info_dict["author"]
         audioFile.tag.album = info_dict["author"]
-        audioFile.tag.images.set(ImageFrame.FRONT_COVER, open(info_dict["thumbnail_path"],'rb').read(), 'image/jpeg')
+        audioFile.tag.images.set(eyed3.id3.frames.ImageFrame.FRONT_COVER, open(info_dict["thumbnail_path"],'rb').read(), 'image/jpeg')
         audioFile.tag.save()
-    def mp4_to_mp3(self, mp4, file_name):
-        # mp4 to mp3
-        try:
-            ffmp4 = ffmpeg.input(mp4)
-            audio = ffmp4.audio
-            go = ffmpeg.output(audio, file_name, q='1')
-            ffmpeg.run(go, overwrite_output=True, cmd=r'ffmpeg.exe')
-            logging.info("mp4 to mp3 successed.")
-            os.remove(mp4)
-        except ffmpeg.Error as e:
-            logging.error("mp4 to mp3 error.")
-            os.remove(mp4)
-            os.remove(file_name)
-            #print(e.stdout.decode("utf-8") )
-            #print(e.stderr.decode("utf-8") )
-    def merge(self, video, audio, out):
-        """Merge audio & video"""
-        try: 
-            ffvideo = ffmpeg.input(video)
-            ffaudio = ffmpeg.input(audio)
-            ffmpeg.concat(ffvideo, ffaudio, v=1, a=1) \
-                .output(out, q='1') \
-                .run(overwrite_output=True, cmd=r'ffmpeg.exe')#capture_stdout=False, capture_stderr=True)
-            os.remove(video)
-            os.remove(audio)
-            logging.info("Merge successed.")
-            return out
-        except ffmpeg.Error as e:
-            os.remove(video)
-            os.remove(audio)
-            os.remove(out)
-            logging.error("Merge audio & video error.")
-            #print(e.stdout.decode("utf-8") )
-            #print(e.stderr.decode("utf-8") ) 
+
+            
 if __name__ == '__main__':
     app = QApplication(sys.argv)
     myWin = mainWindow()
