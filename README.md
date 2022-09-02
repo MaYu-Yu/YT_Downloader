@@ -1,6 +1,6 @@
 # Write a YouTube downloader in python
 
-[![CodeSize](https://img.shields.io/github/languages/code-size/MaYu-Yu/YouTube_Downloader)](https://github.com/MaYu-Yu/YouTube_Downloader)
+https://user-images.githubusercontent.com/59922656/188065052-f87725e8-decd-4d33-a816-a99e9cbcbf99.mp4
 
 pytube API: https://pytube.io/en/latest/
 
