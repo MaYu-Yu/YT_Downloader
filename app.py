@@ -223,7 +223,7 @@ class mainWindow(QMainWindow):
 # GUI事件
     def select_output_event(self):
         """set output path use QFileDialog.getExistingDirectory"""
-        self.output_path = Path(QFileDialog.getExistingDirectory(self, "Select Directory"))
+        self.output_path = Path(QFileDialog.getExistingDirectory(self, "Select Directory")) 
         logging.info("set output path : {}".format(self.output_path))
     def download_audio_event(self):
         info_dict, streams_dict = self.get_yt_info(audio_only=True)
@@ -271,7 +271,7 @@ class mainWindow(QMainWindow):
     def download(self, info_dict, streams_dict, res, isPlaylist=False):
         """ add download gui and call downloadThread"""
         stream = streams_dict[res]
-    # 重複下載判斷
+    # 重複過濾
         stream_file = Path(self.output_path / stream.default_filename) if res != 8787 else \
             Path(self.output_path / (stream.default_filename[:-4]+".mp3"))
         if stream_file.exists():
