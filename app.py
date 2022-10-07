@@ -302,15 +302,13 @@ class mainWindow(QMainWindow):
         """ download thread"""
         stream = streams_dict[res]
         try:
-            out = str(self.output_path / stream.default_filename)
-        # special symbol
-            out = out.replace('&', '_')
+            out = str(self.output_path / stream.default_filename).replace('&', '_')
             temp = stream.download(output_path="temp", 
                                             filename=next(self.random_num)+".mp4", skip_existing=False)
             if res == 8787: # mp4 to mp3
                 out = out[:-4]+".mp3"
                 if not Path(out).exists():
-                    self.mp4_to_mp3(temp, str(out))
+                    self.mp4_to_mp3(temp, out)
                     self.add_title(out, info_dict)
                 else: 
                     os.remove(temp)
