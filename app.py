@@ -303,6 +303,8 @@ class mainWindow(QMainWindow):
         stream = streams_dict[res]
         try:
             out = str(self.output_path / stream.default_filename)
+        # special symbol
+            out = out.replace('&', '_')
             temp = stream.download(output_path="temp", 
                                             filename=next(self.random_num)+".mp4", skip_existing=False)
             if res == 8787: # mp4 to mp3
