@@ -262,7 +262,6 @@ class mainWindow(QMainWindow):
         for u in Playlist(url).video_urls:
             info_dict, streams_dict = self.get_yt_info(u, audio_only=True) if res == 8787 else self.get_yt_info(u)
             if info_dict != None:
-                #if (self.output_path / streams_dict[res]).default_filename.exists() 
                 if res != 8787:
                     res = next(iter(streams_dict))
                 self.download(info_dict, streams_dict, save_path, res, True)
@@ -302,7 +301,7 @@ class mainWindow(QMainWindow):
         stream = streams_dict[res]
         try:
             out = str(save_path / stream.default_filename).replace('&', '_')
-            temp = stream.download(save_path="temp", 
+            temp = stream.download(output_path="temp", 
                                             filename=next(self.random_num)+".mp4", skip_existing=False)
             if res == 8787: # mp4 to mp3
                 out = out[:-4]+".mp3"
@@ -312,7 +311,7 @@ class mainWindow(QMainWindow):
                 else: 
                     os.remove(temp)
             elif not stream.includes_audio_track: # video only
-                audio = streams_dict[8787].download(save_path="temp", 
+                audio = streams_dict[8787].download(output_path="temp", 
                                                     filename=next(self.random_num)+".mp4", skip_existing=False)
                 self.progress[stream] = 87
                 self.merge(temp, audio, out)
