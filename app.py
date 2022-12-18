@@ -228,13 +228,13 @@ class mainWindow(QMainWindow):
     def download_audio_event(self):
         info_dict, streams_dict = self.get_yt_info(audio_only=True)
         if info_dict != None:
-            self.download(info_dict, streams_dict, 8787)
+            self.download(info_dict, streams_dict, self.output_path, 8787)
     def download_video_event(self):
         info_dict, streams_dict = self.get_yt_info()
         if info_dict != None:  
             res = self.select_win.start(info_dict, streams_dict)
             if res == '': return
-            self.download(info_dict, streams_dict, res)
+            self.download(info_dict, streams_dict, self.output_path, res)
 # 下載播放清單GUI建立            
     def download_playlist_event(self):
         def get_playlist_ID(url):
@@ -252,28 +252,27 @@ class mainWindow(QMainWindow):
             return
         res = self.playlist_win.start()
         if res == 0: return 
-        t = threading.Thread(target=self.playlistThread, args =(url,res,))
+        t = threading.Thread(target=self.playlistThread, args =(url,self.output_path,res,))
         t.setDaemon(True)
         self.addThread(t)
 # 下載播放清單執行緒
-    def playlistThread(self, url, res):
+    def playlistThread(self, url, save_path, res):
         """ download playlist thread"""
         self.duplicate_times = 0
-            
         for u in Playlist(url).video_urls:
             info_dict, streams_dict = self.get_yt_info(u, audio_only=True) if res == 8787 else self.get_yt_info(u)
             if info_dict != None:
                 #if (self.output_path / streams_dict[res]).default_filename.exists() 
                 if res != 8787:
                     res = next(iter(streams_dict))
-                self.download(info_dict, streams_dict, res, True)
+                self.download(info_dict, streams_dict, save_path, res, True)
 # 下載GUI建立                
-    def download(self, info_dict, streams_dict, res, isPlaylist=False):
+    def download(self, info_dict, streams_dict, save_path, res, isPlaylist=False):
         """ add download gui and call downloadThread"""
         stream = streams_dict[res]
     # 重複過濾
-        stream_file = Path(self.output_path / stream.default_filename) if res != 8787 else \
-            Path(self.output_path / (stream.default_filename[:-4]+".mp3"))
+        stream_file = Path(save_path / stream.default_filename) if res != 8787 else \
+            Path(save_path / (stream.default_filename[:-4]+".mp3"))
         if stream_file.exists():
             if not isPlaylist:
                 self.error_dialog.warning(self, "錯誤", "重複下載\n{}".format(str(stream_file)))
@@ -292,18 +291,18 @@ class mainWindow(QMainWindow):
             self.list_view.setModel(self.model)
         # thread
             p = progressThread(self.model, self.progress, it_progress, stream)
-            t = threading.Thread(target=self.downloadThread, args =(info_dict, streams_dict, res,))
+            t = threading.Thread(target=self.downloadThread, args =(info_dict, streams_dict, save_path, res,))
             t.setDaemon(True)
             
             self.addThread(p)
             self.addThread(t)
 # 下載執行緒
-    def downloadThread(self, info_dict, streams_dict, res):
+    def downloadThread(self, info_dict, streams_dict, save_path, res):
         """ download thread"""
         stream = streams_dict[res]
         try:
-            out = str(self.output_path / stream.default_filename).replace('&', '_')
-            temp = stream.download(output_path="temp", 
+            out = str(save_path / stream.default_filename).replace('&', '_')
+            temp = stream.download(save_path="temp", 
                                             filename=next(self.random_num)+".mp4", skip_existing=False)
             if res == 8787: # mp4 to mp3
                 out = out[:-4]+".mp3"
@@ -313,7 +312,7 @@ class mainWindow(QMainWindow):
                 else: 
                     os.remove(temp)
             elif not stream.includes_audio_track: # video only
-                audio = streams_dict[8787].download(output_path="temp", 
+                audio = streams_dict[8787].download(save_path="temp", 
                                                     filename=next(self.random_num)+".mp4", skip_existing=False)
                 self.progress[stream] = 87
                 self.merge(temp, audio, out)
