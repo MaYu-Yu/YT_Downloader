@@ -85,7 +85,6 @@ class mainWindow(QMainWindow):
         self.MAX_THREADING = 4 if multiprocessing.cpu_count() // 2 >= 4 else multiprocessing.cpu_count() // 2
         self.Qthread_queue = Circular_Queue(500)
         self.start, self.end = 0, 0 
-    # css
         apply_stylesheet(self, theme='dark_pink.xml')
     # popup
         self.select_win = select_win(self.RES)
@@ -228,13 +227,13 @@ class mainWindow(QMainWindow):
     def download_audio_event(self):
         info_dict, streams_dict = self.get_yt_info(audio_only=True)
         if info_dict != None:
-            self.download(info_dict, streams_dict, self.output_path, 8787)
+            self.download(self.output_path, info_dict, streams_dict, 8787)
     def download_video_event(self):
         info_dict, streams_dict = self.get_yt_info()
         if info_dict != None:  
             res = self.select_win.start(info_dict, streams_dict)
             if res == '': return
-            self.download(info_dict, streams_dict, self.output_path, res)
+            self.download(self.output_path, info_dict, streams_dict, res)
 # 下載播放清單GUI建立            
     def download_playlist_event(self):
         def get_playlist_ID(url):
@@ -252,21 +251,26 @@ class mainWindow(QMainWindow):
             return
         res = self.playlist_win.start()
         if res == 0: return 
-        t = threading.Thread(target=self.playlistThread, args =(url,self.output_path,res,))
-        t.setDaemon(True)
+        t = threading.Thread(target=self.playlistThread, args =(url,res,))
+        t.daemon=True
         self.addThread(t)
 # 下載播放清單執行緒
-    def playlistThread(self, url, save_path, res):
+    def playlistThread(self, url, res):
         """ download playlist thread"""
-        self.duplicate_times = 0
+        save_path = self.output_path
+        
         for u in Playlist(url).video_urls:
             info_dict, streams_dict = self.get_yt_info(u, audio_only=True) if res == 8787 else self.get_yt_info(u)
             if info_dict != None:
+                #if (self.output_path / streams_dict[res]).default_filename.exists() 
                 if res != 8787:
                     res = next(iter(streams_dict))
-                self.download(info_dict, streams_dict, save_path, res, True)
+                # self.download(info_dict, streams_dict, res, True)
+                t = threading.Thread(target=self.download, args =(save_path, info_dict, streams_dict, res, True,))
+                t.daemon=True
+                self.addThread(t)
 # 下載GUI建立                
-    def download(self, info_dict, streams_dict, save_path, res, isPlaylist=False):
+    def download(self, save_path, info_dict, streams_dict, res, isPlaylist=False):
         """ add download gui and call downloadThread"""
         stream = streams_dict[res]
     # 重複過濾
@@ -290,13 +294,13 @@ class mainWindow(QMainWindow):
             self.list_view.setModel(self.model)
         # thread
             p = progressThread(self.model, self.progress, it_progress, stream)
-            t = threading.Thread(target=self.downloadThread, args =(info_dict, streams_dict, save_path, res,))
-            t.setDaemon(True)
+            t = threading.Thread(target=self.downloadThread, args =(save_path, info_dict, streams_dict, res,))
+            t.daemon=True
             
             self.addThread(p)
             self.addThread(t)
 # 下載執行緒
-    def downloadThread(self, info_dict, streams_dict, save_path, res):
+    def downloadThread(self, save_path, info_dict, streams_dict, res):
         """ download thread"""
         stream = streams_dict[res]
         try:

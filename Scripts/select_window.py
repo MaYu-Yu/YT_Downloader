@@ -54,6 +54,7 @@ class select_win(QDialog):
         
         self.thumbnail = QLabel(self)
         self.title = QLabel(self)
+        
         self.label_3 = QLabel(self.verticalLayoutWidget)
         self.label_4 = QLabel(self.verticalLayoutWidget)
         self.label_5 = QLabel(self.verticalLayoutWidget)
