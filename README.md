@@ -17,8 +17,20 @@ pyQt6 : https://doc.qt.io/qtforpython/index.html
 打包參考: https://tw.coderbridge.com/@WeiHaoEric/0b2ced0696cc4c38a62d7b26fa7bbea0
 
 IF ffmpeg console跑出來 ： https://stackoverflow.com/questions/62968888/how-to-hide-console-output-of-ffmpeg-in-python/71741286#71741286
-changed
+ffmpeg中找到_probe.py _run.py
+
 p = subprocess.Popen(args, shell=True, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
 return subprocess.Popen(
     args, shell=True, stdin=subprocess.PIPE, stdout=stdout_stream, stderr=stderr_stream
 )
+
+下載失敗BUG
+
+pytube中找到cipher.py
+
+transform_plan_raw = find_object_from_startpoint(raw_code, match.span()[1] - 1)
+
+取代為：
+
+transform_plan_raw = js

@@ -1,4 +1,5 @@
 # pip install -r requirements.txt
+# pip cache purge 
 coverage==5.5
 deprecation==2.1.0
 eyed3==0.9.7
@@ -10,7 +11,7 @@ MarkupSafe==2.1.2
 packaging==23.0
 pyperclip==1.8.2
 PyQt6==6.4.2
-PyQt6-Qt6==6.4.2
+PyQt6-Qt6==6.4.3
 PyQt6-sip==13.4.1
 pytube==12.1.2
 qt-material==2.14
