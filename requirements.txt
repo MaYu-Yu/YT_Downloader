@@ -1,5 +1,6 @@
 # pip install -r requirements.txt
 # pip cache purge 
+altgraph==0.17.3
 coverage==5.5
 deprecation==2.1.0
 eyed3==0.9.7
@@ -9,10 +10,14 @@ future==0.18.3
 Jinja2==3.1.2
 MarkupSafe==2.1.2
 packaging==23.0
+pefile==2023.2.7
+pyinstaller==5.9.0
+pyinstaller-hooks-contrib==2023.1
 pyperclip==1.8.2
 PyQt6==6.4.2
 PyQt6-Qt6==6.4.3
 PyQt6-sip==13.4.1
-pytube==12.1.2
+pytube==15.0.0
+pywin32-ctypes==0.2.0
 qt-material==2.14
 toml==0.10.2

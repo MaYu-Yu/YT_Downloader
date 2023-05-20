@@ -184,40 +184,6 @@ class mainWindow(QMainWindow):
         self.download_video_btn.setText("下載影片")
         self.select_output_btn.setText("輸出資料夾")
         self.download_playlist_btn.setText("下載播放清單")
-    # def set_bottom_btn(self):
-    #     self.horizontalLayoutWidget_1 = QWidget(self.centralwidget)
-    #     self.horizontalLayoutWidget_1.setGeometry(QRect(10, 590, 641, 61))
-    #     self.horizontalLayout_1 = QHBoxLayout(self.horizontalLayoutWidget_1)
-    #     self.horizontalLayout_1.setContentsMargins(0, 0, 0, 0)
-        
-    #     self.delete_btn = QPushButton(self.horizontalLayoutWidget_1)
-    #     self.clear_btn = QPushButton(self.horizontalLayoutWidget_1)
-
-    #     self.horizontalLayout_1.addWidget(self.delete_btn)
-    #     self.horizontalLayout_1.addWidget(self.clear_btn)
-    #     self.sizePolicy_1 = QSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Preferred)
-    #     self.sizePolicy_1.setHorizontalStretch(0)
-    #     self.sizePolicy_1.setVerticalStretch(0)
-    #     self.sizePolicy_1.setHeightForWidth(self.delete_btn.sizePolicy().hasHeightForWidth())        
-    #     self.sizePolicy_1.setHeightForWidth(self.clear_btn.sizePolicy().hasHeightForWidth())        
-    #     self.delete_btn.setSizePolicy(self.sizePolicy_1)
-    #     self.clear_btn.setSizePolicy(self.sizePolicy_1)
-    #     self.delete_btn.clicked.connect( \
-    #         lambda:self.delete_rows_event())
-    #     self.clear_btn.clicked.connect( \
-    #         lambda:self.clear_event())    
-        
-    #     self.delete_btn.setText("刪除")
-    #     self.clear_btn.setText("清空")
-    # def delete_rows_event(self):
-        # select_row = []                                                      
-        # for model_index in self.list_view.selectionModel().selectedIndexes():       
-        #     index = QPersistentModelIndex(model_index)         
-        #     select_row.append(index)        
-        # for index in select_row:          
-        #     self.model.removeRow(index.row())
-    # def clear_event(self):
-    #     self.model.removeRows(0, self.model.rowCount())
     
 # GUI事件
     def select_output_event(self):
