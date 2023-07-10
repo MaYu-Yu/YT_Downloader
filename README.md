@@ -25,12 +25,12 @@ return subprocess.Popen(
     args, shell=True, stdin=subprocess.PIPE, stdout=stdout_stream, stderr=stderr_stream
 )
 
-下載失敗BUG
+下載失敗BUG 參考:https://github.com/pytube/pytube/issues/1707
 
 pytube中找到cipher.py
 
-transform_plan_raw = find_object_from_startpoint(raw_code, match.span()[1] - 1)
+r'var {nfunc}\s*=\s*(\[.+?\]);'.format(
 
-取代為：
+去掉分號：
 
-transform_plan_raw = js
+r'var {nfunc}\s*=\s*(\[.+?\])'.format(
