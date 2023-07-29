@@ -2,69 +2,76 @@ from PyQt6.QtWidgets import *
 from PyQt6.QtGui import * 
 from PyQt6.QtCore import * 
 from qt_material import apply_stylesheet
-import pyperclip# clipboard
+import pyperclip
+
 # my lib
 class select_win(QDialog):
     def __init__(self, res):
-        QDialog.__init__(self)
+        super().__init__()
         self.setFixedSize(550, 350)
         self.setWindowFlags(Qt.WindowType.WindowStaysOnTopHint)
         apply_stylesheet(self, theme='dark_pink.xml')
-        self.res_list = list()
-        for r in res:
-            self.res_list.append(int(r.replace("p", "")))
+        self.res_list = [int(r.replace("p", "")) for r in res]
         self.res = None
-        
+
         self.gridLayoutWidget = QWidget(self)
         self.gridLayoutWidget.setGeometry(QRect(70, 240, 450, 61))
         self.gridLayout = QGridLayout(self.gridLayoutWidget)
-        self.gridLayout.setContentsMargins(0, 0, 0, 0) 
+        self.gridLayout.setContentsMargins(0, 0, 0, 0)
         self.set_QDialogButtonBox()
         self.set_yt_ui()
-        
+
         self.set_radio()
         self.set_static_txt()
+
+    def addLabel(self, text, alignment):
+        label = QLabel(self.gridLayoutWidget)
+        label.setLineWidth(0)
+        label.setAlignment(alignment)
+        label.setText(text)
+        return label
 
     def set_yt_info(self, info_dict, streams_dict):
         pixmap = QPixmap(info_dict.get("thumbnail_path"))
         pixmap.scaled(25,25, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.FastTransformation)
         self.thumbnail.setScaledContents(True)
         self.thumbnail.setPixmap(pixmap)
-        
+
         self.title.setText(info_dict.get("title"))
         self.author.setText(info_dict.get("author"))
         self.publish_date.setText(str(info_dict.get("publish_date")))
         self.views.setText(str(info_dict.get("views")))
         self.play_len.setText("{}分 : {}秒".format(info_dict.get("play_len") // 60, info_dict.get("play_len") % 60))
-        
+
         best = True
-        for i in range(len(self.res_list)):
-            if streams_dict.get(self.res_list[i]):
+        for i, res in enumerate(self.res_list):
+            if streams_dict.get(res):
                 if best:
-                    self.radio_list[i].setChecked(best)
+                    self.radio_list[i].setChecked(True)
                     best = False
                 self.radio_list[i].setHidden(False)
             else:
                 self.radio_list[i].setHidden(True)
+
     def set_yt_ui(self):
         self.verticalLayoutWidget = QWidget(self)
         self.verticalLayoutWidget.setGeometry(QRect(270, 20, 230, 150))
         self.verticalLayoutWidget_1 = QWidget(self)
-        self.verticalLayoutWidget_1.setGeometry(QRect(340, 20, 230, 150))        
-        
+        self.verticalLayoutWidget_1.setGeometry(QRect(340, 20, 230, 150))
+
         self.thumbnail = QLabel(self)
         self.title = QLabel(self)
-        
-        self.label_3 = QLabel(self.verticalLayoutWidget)
-        self.label_4 = QLabel(self.verticalLayoutWidget)
-        self.label_5 = QLabel(self.verticalLayoutWidget)
-        self.label_6 = QLabel(self.verticalLayoutWidget)   
-        
+
+        self.label_3 = self.addLabel("作者:", Qt.AlignmentFlag.AlignCenter)
+        self.label_4 = self.addLabel("發布日期:", Qt.AlignmentFlag.AlignCenter)
+        self.label_5 = self.addLabel("點閱人數:", Qt.AlignmentFlag.AlignCenter)
+        self.label_6 = self.addLabel("影片時間:", Qt.AlignmentFlag.AlignCenter)
+
         self.author = QLabel(self.verticalLayoutWidget_1)
         self.publish_date = QLabel(self.verticalLayoutWidget_1)
         self.views = QLabel(self.verticalLayoutWidget_1)
         self.play_len = QLabel(self.verticalLayoutWidget_1)
-        
+
         self.thumbnail.setGeometry(QRect(10, 10, 250, 171))
         self.title.setGeometry(QRect(0, 180, 550, 70))
         self.verticalLayout = QVBoxLayout(self.verticalLayoutWidget)
@@ -73,37 +80,33 @@ class select_win(QDialog):
         self.verticalLayout.addWidget(self.label_4)
         self.verticalLayout.addWidget(self.label_5)
         self.verticalLayout.addWidget(self.label_6)
-        
+
         self.verticalLayout_1 = QVBoxLayout(self.verticalLayoutWidget_1)
         self.verticalLayout_1.setContentsMargins(0, 0, 0, 0)
         self.verticalLayout_1.addWidget(self.author)
         self.verticalLayout_1.addWidget(self.publish_date)
         self.verticalLayout_1.addWidget(self.views)
         self.verticalLayout_1.addWidget(self.play_len)
+
     def set_radio(self):
-    
-        self.label_ = QLabel(self.gridLayoutWidget)
-        self.label_.setLineWidth(0)
-        self.label_.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.label_ = self.addLabel("畫質選擇", Qt.AlignmentFlag.AlignCenter)
         self.gridLayout.addWidget(self.label_, 0, 0, 1, 5)
         self.radio_list = [QRadioButton(self.gridLayoutWidget) for _ in range(len(self.res_list))]
         self.radio_group = QButtonGroup(self)
-        for i in range(len(self.res_list)):
-            self.radio_group.addButton(self.radio_list[i], self.res_list[i])
-            self.radio_list[i].setText(str(self.res_list[i]))
+        for i, res in enumerate(self.res_list):
+            self.radio_group.addButton(self.radio_list[i], res)
+            self.radio_list[i].setText(str(res))
             self.gridLayout.addWidget(self.radio_list[i], 1, i, 1, 1)
-        # audio
-        # self.radio_group.addButton(self.radio_list[-1], 8787)
-        # self.radio_list[5].setText("Audio")
-        # self.gridLayout.addWidget(self.radio_list[-1], 1, 5, 1, 1)        
+
     def set_QDialogButtonBox(self):
         self.buttonBox = QDialogButtonBox(self)
         self.buttonBox.setGeometry(QRect(150, 310, 201, 41))
         self.buttonBox.setOrientation(Qt.Orientation.Horizontal)
-        self.buttonBox.setStandardButtons(QDialogButtonBox.StandardButton.Cancel|QDialogButtonBox.StandardButton.Ok) 
+        self.buttonBox.setStandardButtons(QDialogButtonBox.StandardButton.Cancel | QDialogButtonBox.StandardButton.Ok)
         self.buttonBox.accepted.connect(self.accept) # type: ignore
         self.buttonBox.rejected.connect(self.reject) # type: ignore
         QMetaObject.connectSlotsByName(self)
+
     def set_static_txt(self):
         self.setWindowTitle("影片畫質選擇")
         self.label_.setText("畫質選擇")
@@ -111,19 +114,25 @@ class select_win(QDialog):
         self.label_4.setText("發布日期:")
         self.label_5.setText("點閱人數:")
         self.label_6.setText("影片時間:")
+
     def start(self, info_dict, streams_dict):
         self.set_yt_info(info_dict, streams_dict)
-        r =self.exec()
+        r = self.exec()
         if r:
             return self.res
         return None
+
     def accept(self):
         self.res = self.radio_group.checkedId()
         super().accept()
+
     def reject(self):
         self.res = ''
-        super().accept()      
+        super().accept()
+
         
+from PyQt6.QtWidgets import QWidget, QMessageBox, QPushButton
+
 class playlist_win(QWidget):
     def __init__(self):
         super().__init__()

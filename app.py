@@ -1,7 +1,7 @@
-# 快取path更改、紀錄
 from PyQt6.QtWidgets import * 
 from PyQt6.QtGui import * 
 from PyQt6.QtCore import *
+from PyQt6.QtCore import QThread, Qt, QElapsedTimer
 from qt_material import apply_stylesheet
 import pyperclip, sys # clipboard
 from pytube import YouTube, Playlist
@@ -14,8 +14,35 @@ import eyed3
 # my lib 
 from Scripts.select_window import select_win, playlist_win
 from Scripts.Circular_Queue import Circular_Queue
-from Scripts.delete_temp import delDir
 
+
+# 建立刪除舊日誌檔案的函式
+def delDir(dir, t=259200):
+    if os.path.exists(dir):
+        # 獲取文件夾下所有文件和文件夾
+        files = os.listdir(dir)
+        now = int(time.time())  # 只需獲取一次當前時間
+
+        for file in files:
+            filePath = os.path.join(dir, file)  # 使用os.path.join來拼接路徑
+            if os.path.isfile(filePath):
+                # 獲取文件的最後一次修改時間
+                last_modified_time = int(os.stat(filePath).st_mtime)
+
+                # 判斷是否過期
+                if now - last_modified_time >= t:
+                    os.remove(filePath)
+                    print(filePath + " was removed!")
+            elif os.path.isdir(filePath):
+                # 如果是文件夾，繼續遞迴刪除
+                delDir(filePath, t)
+
+                # 如果是空文件夾，刪除空文件夾
+                if not os.listdir(filePath):
+                    os.rmdir(filePath)
+                    print(filePath + " was removed!")
+    else:
+        os.mkdir(dir)
 # log黨建立
 delDir('./img/', t=259200)
 LOGGING_FORMAT = '%(asctime)s - %(name)s - %(levelname)s - %(message)s [line:%(lineno)d]'
@@ -23,7 +50,7 @@ DATE_FORMAT = '%Y%m%d %H:%M:%S'
 logging.basicConfig(level=logging.INFO, filename='./img/mylog.log', filemode='a+',
                     format=LOGGING_FORMAT, datefmt=DATE_FORMAT, encoding='utf-8')
 
-# progress bar 同步更新
+# 進度條同步更新的執行緒
 class progressThread(QThread):
     def __init__(self, model, progress, it_progress, stream):
         QThread.__init__(self)
@@ -32,28 +59,36 @@ class progressThread(QThread):
         self.it_progress = it_progress
         self.stream = stream
         self.over = False
+
     def __del__(self):
         self.wait()
+
     def run(self):
+        elapsed_timer = QElapsedTimer()
+        elapsed_timer.start()
+
         try:
-            while not self.over:      
+            while not self.over:
                 val = self.progress[self.stream]
                 if val <= 100:
-                    self.model.setItemData(self.it_progress.index(),
-                        {Qt.ItemDataRole.UserRole+1000:val}) # let my progress item reflash
-                    if val == 100: 
+                    self.model.setItemData(self.it_progress.index(), {Qt.ItemDataRole.UserRole + 1000: val})
+                    if val == 100:
                         self.over = True
-                time.sleep(1)
-        except RuntimeError as e :   
+                elapsed_time = elapsed_timer.elapsed()
+                if elapsed_time < 1000:  # Delay 1 second
+                    self.msleep(1000 - elapsed_time)
+        except RuntimeError as e:
             self.progress[self.stream] = -1
-            logging.error(e) 
-            self.exit()
-        self.exit()
-# 畫出progress bar 
+            logging.error(e)
+
+# 繪製進度條
 class ProgressDelegate(QStyledItemDelegate):
     def paint(self, painter, option, index):
         progress = index.data(Qt.ItemDataRole.UserRole + 1000)
-        
+
+         # 確保進度在0到100的範圍內
+        progress = max(0, min(100, progress))
+
         opt = QStyleOptionProgressBar()
         opt.rect = option.rect
         opt.minimum = 0
@@ -62,12 +97,10 @@ class ProgressDelegate(QStyledItemDelegate):
         opt.text = f"{progress}%"
         opt.textVisible = True
         opt.state |= QStyle.StateFlag.State_Horizontal
-        style = (
-            option.widget.style() if option.widget is not None else QApplication.style()
-        )
-        style.drawControl(
-            QStyle.ControlElement.CE_ProgressBar, opt, painter, option.widget
-        )
+
+        style = option.widget.style() if option.widget is not None else QApplication.style()
+        style.drawControl(QStyle.ControlElement.CE_ProgressBar, opt, painter, option.widget)
+
         
 class mainWindow(QMainWindow):
     def __init__(self):
@@ -192,13 +225,14 @@ class mainWindow(QMainWindow):
         logging.info("set output path : {}".format(self.output_path))
     def download_audio_event(self):
         info_dict, streams_dict = self.get_yt_info(audio_only=True)
-        if info_dict != None:
+        if info_dict is not None:
             self.download(self.output_path, info_dict, streams_dict, 8787)
     def download_video_event(self):
         info_dict, streams_dict = self.get_yt_info()
-        if info_dict != None:  
+        if info_dict is not None:  
             res = self.select_win.start(info_dict, streams_dict)
-            if res == '': return
+            if res == '':
+                return
             self.download(self.output_path, info_dict, streams_dict, res)
 # 下載播放清單GUI建立            
     def download_playlist_event(self):
@@ -206,17 +240,18 @@ class mainWindow(QMainWindow):
             """It will return YouTube's Playlist ID"""
             youtube_regex = r"[?&]list=(?P<list_ID>([^&]+))"
             sreMatch = re.search(youtube_regex, url)
-            if sreMatch != None:
+            if sreMatch is not None:
                 return sreMatch.group("list_ID")
             else: 
                 logging.warning("Not a YouTube's PlayList URL.")
                 return None
         url = pyperclip.paste()
-        if get_playlist_ID(url) == None:
+        if get_playlist_ID(url) is None:
             self.error_dialog.critical(self, "錯誤", "此視頻無播放清單")
             return
         res = self.playlist_win.start()
-        if res == 0: return 
+        if res == 0:
+            return 
         t = threading.Thread(target=self.playlistThread, args =(url,res,))
         t.daemon=True
         self.addThread(t)
@@ -227,7 +262,7 @@ class mainWindow(QMainWindow):
         
         for u in Playlist(url).video_urls:
             info_dict, streams_dict = self.get_yt_info(u, audio_only=True) if res == 8787 else self.get_yt_info(u)
-            if info_dict != None:
+            if info_dict is not None:
                 #if (self.output_path / streams_dict[res]).default_filename.exists() 
                 if res != 8787:
                     res = next(iter(streams_dict))
@@ -364,7 +399,7 @@ class mainWindow(QMainWindow):
         """
         youtube_regex = r"^(?:https?:\/\/)?(?:www\.)?(?:youtu\.be\/|youtube\.com\/(?:embed\/|v\/|watch\?v=|watch\?.+&v=))(?P<video_ID>(\w|-)[^&]+)(?:\S+)?$"
         sreMatch = re.match(youtube_regex, url)
-        if sreMatch != None:
+        if sreMatch is not None:
             return sreMatch.group("video_ID")
         else: 
             logging.warning("Not a YouTube's URL.")
@@ -381,9 +416,10 @@ class mainWindow(QMainWindow):
             _Dict_: info_dict[title, thumbnail_path, author, captions, publish_date, views, play_len]
             _Dict_: streams_dict["4320", "2160", "1080", "720", "480", "8787"--is audio]
         """
-        if url == '': url=pyperclip.paste()
+        if url == '':
+            url = pyperclip.paste()
         id = self.get_video_ID(url)
-        if id == None: 
+        if id is None: 
             self.error_dialog.warning(self, "錯誤", "YouTube網址錯誤")
             return None, None
         yt = YouTube(url, on_progress_callback=self.my_progress_bar)
@@ -405,7 +441,7 @@ class mainWindow(QMainWindow):
             if not audio_only:
                 for res in self.RES:
                     video_obj = yt.streams.filter( mime_type="video/mp4", res=res).first()
-                    if video_obj != None:
+                    if video_obj is not None:
                         streams_dict.update({int(res[:-1]): video_obj})
             streams_dict.update({8787: yt.streams.filter( mime_type="audio/mp4").order_by('abr').desc().first() }) # audio
             
@@ -423,7 +459,7 @@ class mainWindow(QMainWindow):
             info_dict (_str_): info dict
         """
         audioFile = eyed3.load(file_name)
-        if (audioFile.tag == None):
+        if audioFile.tag is None:
             audioFile.initTag()
         audioFile.tag.title = info_dict["title"]
         audioFile.tag.artist = info_dict["author"]
@@ -436,4 +472,4 @@ if __name__ == '__main__':
     app = QApplication(sys.argv)
     myWin = mainWindow()
     myWin.show()
-    sys.exit(app.exec())
+    sys.exit(app.exec())  # Use QApplication.exec() instead of app.exec_()
