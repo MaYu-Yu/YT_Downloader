@@ -1,7 +1,6 @@
 from PyQt6.QtWidgets import * 
 from PyQt6.QtGui import * 
 from PyQt6.QtCore import *
-from PyQt6.QtCore import QThread, Qt, QElapsedTimer
 from qt_material import apply_stylesheet
 import pyperclip, sys # clipboard
 from pytube import YouTube, Playlist
@@ -9,42 +8,41 @@ from pathlib import Path
 import ffmpeg, re
 import urllib.request, os, logging, random, time
 import threading, multiprocessing
-# album
-import eyed3
+from mutagen.mp4 import MP4, MP4Cover
+from mutagen.id3 import ID3, APIC, TIT2, TPE1, TALB, ID3NoHeaderError
 # my lib 
-from Scripts.select_window import select_win, playlist_win
+from Scripts.select_window import selectWin, playlistWin
 from Scripts.Circular_Queue import Circular_Queue
 
 
 # 建立刪除舊日誌檔案的函式
-def delDir(dir, t=259200):
-    if os.path.exists(dir):
-        # 獲取文件夾下所有文件和文件夾
-        files = os.listdir(dir)
-        now = int(time.time())  # 只需獲取一次當前時間
+def delDir(dir_path, max_age=259200):
+    if os.path.exists(dir_path):
+        now = int(time.time())
 
-        for file in files:
-            filePath = os.path.join(dir, file)  # 使用os.path.join來拼接路徑
-            if os.path.isfile(filePath):
-                # 獲取文件的最後一次修改時間
-                last_modified_time = int(os.stat(filePath).st_mtime)
+        for root, dirs, files in os.walk(dir_path, topdown=False):
+            for file_name in files:
+                file_path = os.path.join(root, file_name)
+                last_modified_time = int(os.stat(file_path).st_mtime)
+                if now - last_modified_time >= max_age:
+                    os.remove(file_path)
+                    logging.info(f"{file_path} was removed!")
 
-                # 判斷是否過期
-                if now - last_modified_time >= t:
-                    os.remove(filePath)
-                    print(filePath + " was removed!")
-            elif os.path.isdir(filePath):
-                # 如果是文件夾，繼續遞迴刪除
-                delDir(filePath, t)
+            for dir_name in dirs:
+                dir_path = os.path.join(root, dir_name)
+                try:
+                    os.rmdir(dir_path)
+                    logging.info(f"{dir_path} was removed!")
+                except OSError:
+                    pass
 
-                # 如果是空文件夾，刪除空文件夾
-                if not os.listdir(filePath):
-                    os.rmdir(filePath)
-                    print(filePath + " was removed!")
     else:
-        os.mkdir(dir)
-# log黨建立
-delDir('./img/', t=259200)
+        os.mkdir(dir_path)
+
+# log檔案建立
+delDir('./img/', max_age=259200)
+delDir('./temp/', max_age=0)
+
 LOGGING_FORMAT = '%(asctime)s - %(name)s - %(levelname)s - %(message)s [line:%(lineno)d]'
 DATE_FORMAT = '%Y%m%d %H:%M:%S'
 logging.basicConfig(level=logging.INFO, filename='./img/mylog.log', filemode='a+',
@@ -79,32 +77,40 @@ class progressThread(QThread):
                     self.msleep(1000 - elapsed_time)
         except RuntimeError as e:
             self.progress[self.stream] = -1
+            logging.error("progressThread Error")
             logging.error(e)
 
 # 繪製進度條
 class ProgressDelegate(QStyledItemDelegate):
     def paint(self, painter, option, index):
+        # Extract progress value from item data
         progress = index.data(Qt.ItemDataRole.UserRole + 1000)
-
-         # 確保進度在0到100的範圍內
+        
+        # Ensure progress is within the 0-100 range
         progress = max(0, min(100, progress))
-
-        opt = QStyleOptionProgressBar()
-        opt.rect = option.rect
-        opt.minimum = 0
-        opt.maximum = 100
-        opt.progress = progress
-        opt.text = f"{progress}%"
-        opt.textVisible = True
-        opt.state |= QStyle.StateFlag.State_Horizontal
-
-        style = option.widget.style() if option.widget is not None else QApplication.style()
-        style.drawControl(QStyle.ControlElement.CE_ProgressBar, opt, painter, option.widget)
-
+        
+        # Create QStyleOptionProgressBar
+        progress_bar_option = self.getProgressBarOption(option, progress)
+        
+        # Draw the progress bar
+        style = option.widget.style() if option.widget else QApplication.style()
+        style.drawControl(QStyle.ControlElement.CE_ProgressBar, progress_bar_option, painter, option.widget)
+    
+    def getProgressBarOption(self, option, progress):
+        progress_bar_option = QStyleOptionProgressBar()
+        progress_bar_option.rect = option.rect
+        progress_bar_option.minimum = 0
+        progress_bar_option.maximum = 100
+        progress_bar_option.progress = progress
+        progress_bar_option.text = f"{progress}%"
+        progress_bar_option.textVisible = True
+        progress_bar_option.state |= QStyle.StateFlag.State_Horizontal
+        return progress_bar_option
         
 class mainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
+        apply_stylesheet(self, theme='dark_pink.xml')
         self.output_path = Path(str(Path.home() / "Downloads"))
         self.RES = ("4320p", "2160p", "1080p", "720p", "480p")
         def get_random():
@@ -115,24 +121,22 @@ class mainWindow(QMainWindow):
         self.random_num = get_random()
         self.progress = {}
     #limit threading
-        self.MAX_THREADING = 4 if multiprocessing.cpu_count() // 2 >= 4 else multiprocessing.cpu_count() // 2
-        self.Qthread_queue = Circular_Queue(500)
-        self.start, self.end = 0, 0 
-        apply_stylesheet(self, theme='dark_pink.xml')
+        cpu_cores = multiprocessing.cpu_count() // 2
+        self.MAX_THREADING = max(1, cpu_cores)
+        self.Qthread_queue = Circular_Queue(self.MAX_THREADING)
+        logging.info(f"MAX_THREADING={self.MAX_THREADING}")
     # popup
-        self.select_win = select_win(self.RES)
-        self.playlist_win = playlist_win()
+        self.select_win = selectWin(self.RES)
+        self.playlist_win = playlistWin()
     # mainWindow setting
         self.setWindowTitle("YouTube下載器")
         self.error_dialog = QMessageBox()
         self.move(QPoint(800, 50))
         self.setFixedSize(658, 658)
         self.my_icon_size = QSize(1200, 50)
-        #self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint)
         self.centralwidget = QWidget(self)
         self.setCentralWidget(self.centralwidget)
         self.set_up_btn()   
-        # self.set_bottom_btn() 
         self.set_download_area()
         
         progress_delegate = ProgressDelegate(self.list_view)
@@ -152,8 +156,8 @@ class mainWindow(QMainWindow):
                 t.start()
         except Exception as e:
             logging.error("Qthread start error.")
-            logging.warn(e)
-    def addThread(self, t):
+            logging.error(e)
+    def add_thread(self, t):
         """ add thread the queue, if the queue is full, wait until the queue is free"""
         while self.Qthread_queue.isFull():
             time.sleep(1)
@@ -171,25 +175,23 @@ class mainWindow(QMainWindow):
         self.list_view.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.list_view.horizontalHeader().setStretchLastSection(True)
         self.list_view.setIconSize(self.my_icon_size)
-        # self.list_view.verticalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
-        # self.list_view.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
         self.list_view.verticalHeader().setDefaultSectionSize(50)
         self.download_area.setWidget(self.scroll_area) 
     def set_up_btn(self):
-        self.horizontalLayoutWidget = QWidget(self.centralwidget)
-        self.horizontalLayoutWidget.setGeometry(QRect(10, 10, 641, 61))
-        self.horizontalLayout = QHBoxLayout(self.horizontalLayoutWidget)
-        self.horizontalLayout.setContentsMargins(0, 0, 0, 0)
+        self.horizontal_layout_widget = QWidget(self.centralwidget)
+        self.horizontal_layout_widget.setGeometry(QRect(10, 10, 641, 61))
+        self.horizontal_layout = QHBoxLayout(self.horizontal_layout_widget)
+        self.horizontal_layout.setContentsMargins(0, 0, 0, 0)
         
-        self.download_audio_btn = QPushButton(self.horizontalLayoutWidget)
-        self.download_video_btn = QPushButton(self.horizontalLayoutWidget)
-        self.select_output_btn = QPushButton(self.horizontalLayoutWidget)
-        self.download_playlist_btn = QPushButton(self.horizontalLayoutWidget)
+        self.download_audio_btn = QPushButton(self.horizontal_layout_widget)
+        self.download_video_btn = QPushButton(self.horizontal_layout_widget)
+        self.select_output_btn = QPushButton(self.horizontal_layout_widget)
+        self.download_playlist_btn = QPushButton(self.horizontal_layout_widget)
         
-        self.horizontalLayout.addWidget(self.download_audio_btn)
-        self.horizontalLayout.addWidget(self.download_video_btn)
-        self.horizontalLayout.addWidget(self.select_output_btn)
-        self.horizontalLayout.addWidget(self.download_playlist_btn)
+        self.horizontal_layout.addWidget(self.download_audio_btn)
+        self.horizontal_layout.addWidget(self.download_video_btn)
+        self.horizontal_layout.addWidget(self.select_output_btn)
+        self.horizontal_layout.addWidget(self.download_playlist_btn)
 
         
         self.sizePolicy = QSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Preferred)
@@ -231,7 +233,7 @@ class mainWindow(QMainWindow):
         info_dict, streams_dict = self.get_yt_info()
         if info_dict is not None:  
             res = self.select_win.start(info_dict, streams_dict)
-            if res == '':
+            if res == None:
                 return
             self.download(self.output_path, info_dict, streams_dict, res)
 # 下載播放清單GUI建立            
@@ -250,29 +252,27 @@ class mainWindow(QMainWindow):
             self.error_dialog.critical(self, "錯誤", "此視頻無播放清單")
             return
         res = self.playlist_win.start()
-        if res == 0:
+        if res == None:
             return 
-        t = threading.Thread(target=self.playlistThread, args =(url,res,))
+        t = threading.Thread(target=self.playlist_thread, args =(url,res,))
         t.daemon=True
-        self.addThread(t)
+        self.add_thread(t)
 # 下載播放清單執行緒
-    def playlistThread(self, url, res):
+    def playlist_thread(self, url, res):
         """ download playlist thread"""
         save_path = self.output_path
         
         for u in Playlist(url).video_urls:
             info_dict, streams_dict = self.get_yt_info(u, audio_only=True) if res == 8787 else self.get_yt_info(u)
             if info_dict is not None:
-                #if (self.output_path / streams_dict[res]).default_filename.exists() 
                 if res != 8787:
                     res = next(iter(streams_dict))
-                # self.download(info_dict, streams_dict, res, True)
                 t = threading.Thread(target=self.download, args =(save_path, info_dict, streams_dict, res, True,))
                 t.daemon=True
-                self.addThread(t)
+                self.add_thread(t)
 # 下載GUI建立                
     def download(self, save_path, info_dict, streams_dict, res, isPlaylist=False):
-        """ add download gui and call downloadThread"""
+        """ add download gui and call download_thread"""
         stream = streams_dict[res]
     # 重複過濾
         stream_file = Path(save_path / stream.default_filename) if res != 8787 else \
@@ -295,93 +295,70 @@ class mainWindow(QMainWindow):
             self.list_view.setModel(self.model)
         # thread
             p = progressThread(self.model, self.progress, it_progress, stream)
-            t = threading.Thread(target=self.downloadThread, args =(save_path, info_dict, streams_dict, res,))
+            t = threading.Thread(target=self.download_thread, args =(save_path, info_dict, streams_dict, res,))
             t.daemon=True
             
-            self.addThread(p)
-            self.addThread(t)
+            self.add_thread(p)
+            self.add_thread(t)
 # 下載執行緒
-    def downloadThread(self, save_path, info_dict, streams_dict, res):
+    def download_thread(self, save_path, info_dict, streams_dict, res):
         """ download thread"""
-        stream = streams_dict[res]
         try:
-            out = str(save_path / stream.default_filename).replace('&', '_')
-            temp = stream.download(output_path="temp", 
-                                            filename=next(self.random_num)+".mp4", skip_existing=False)
-            if res == 8787: # mp4 to mp3
-                out = out[:-4]+".mp3"
-                if not Path(out).exists():
-                    self.mp4_to_mp3(temp, out)
-                    self.add_title(out, info_dict)
-                else: 
-                    os.remove(temp)
-            elif not stream.includes_audio_track: # video only
-                audio = streams_dict[8787].download(output_path="temp", 
-                                                    filename=next(self.random_num)+".mp4", skip_existing=False)
-                self.progress[stream] = 87
-                self.merge(temp, audio, out)
+            stream = streams_dict[res]
+            self.progress[stream] = 0
+            
+            audio_path = streams_dict[8787].download(output_path="temp", 
+                                    filename_prefix=next(self.random_num), skip_existing=False)
+            if res == 8787:
+                output_filename = streams_dict[8787].default_filename
+                output_path = os.path.join(save_path, output_filename.replace(".mp4", ".mp3"))
+                if not os.path.exists(output_path):
+                    self.convert_to_mp3(audio_path, output_path)
+                else:
+                    logging.info(f"File [{output_path}] already exists. Skipping download.")
             else:
-                os.rename(temp, out)
-            logging.info(out)
+                video_path = streams_dict[res].download(output_path="temp", filename_prefix=next(self.random_num),
+                                                skip_existing=False)
+                output_filename = streams_dict[res].default_filename
+                output_path = os.path.join(save_path, output_filename)
+                if not os.path.exists(output_path):
+                    self.merge_audio_and_video(audio_path, video_path, output_path)
+                else:
+                    logging.info(f"File [{output_path}] already exists. Skipping download.")
+                os.remove(video_path)
+            os.remove(audio_path)
+            self.add_info(output_path, info_dict)    
             self.progress[stream] = 100
         except Exception as e:
             logging.error("Download Thread error.")
             logging.error(e)
-            os.remove(temp)
-            os.remove(audio)
+            os.remove(audio_path)
+            os.remove(video_path)
+            os.remove(output_path)
 # 音樂轉成mp3
-    def mp4_to_mp3(self, mp4, file_name):
-        """mp4 to mp3
-
-        Args:
-            mp4 (_type_): mp4 file_name
-            file_name (_type_): output file_name
-        """
-        # mp4 to mp3
+    def convert_to_mp3(self, input_path, output_path):
         try:
-            ffmp4 = ffmpeg.input(mp4)
-            audio = ffmp4.audio
-            go = ffmpeg.output(audio, file_name, q='1')
-            ffmpeg.run(go, overwrite_output=True, cmd=r'ffmpeg.exe')
-            logging.info("mp4 to mp3 successed.")
-            os.remove(mp4)
+            ffmpeg.input(input_path).output(output_path).run(overwrite_output=True)
         except ffmpeg.Error as e:
-            logging.error("mp4 to mp3 error.")
-            os.remove(mp4)
-            os.remove(file_name)
-            #print(e.stdout.decode("utf-8") )
-            #print(e.stderr.decode("utf-8") )
+            os.remove(input_path)
+            os.remove(output_path)
+            logging.error("convert_to_mp3 error.")
+            logging.error(f"Error(stdout): {e.stdout}")
+            logging.error(f"Error(stderr): {e.stderr}")
             
 # 因為yt最高畫質跟音樂是分開下載的 所以需要合併它們
-    def merge(self, video, audio, out):
-        """Merge audio & video
-
-        Args:
-            video (_type_): video file_name
-            audio (_type_): audio file_name
-            out (_type_): output file_name
-
-        Returns:
-            _type_: output file_name
-        """
-        try: 
-            ffvideo = ffmpeg.input(video)
-            ffaudio = ffmpeg.input(audio)
-            ffmpeg.concat(ffvideo, ffaudio, v=1, a=1) \
-                .output(out, q='1') \
-                .run(overwrite_output=True, cmd=r'ffmpeg.exe')#capture_stdout=False, capture_stderr=True)
-            os.remove(video)
-            os.remove(audio)
-            logging.info("Merge successed.")
-            return out
+    def merge_audio_and_video(self, audio_path, video_path, output_path):
+        try:
+            audio = ffmpeg.input(audio_path)
+            video = ffmpeg.input(video_path)
+            ffmpeg.output(audio, video, output_path, acodec='aac').run(overwrite_output=True)
         except ffmpeg.Error as e:
             os.remove(video)
             os.remove(audio)
-            os.remove(out)
-            logging.error("Merge audio & video error., {}")
-            #print(e.stdout.decode("utf-8") )
-            #print(e.stderr.decode("utf-8") ) 
-            
+            os.remove(output_path)
+            logging.error("merge_audio_and_video error.")
+            logging.error(f"Error(stdout): {e.stdout}")
+            logging.error(f"Error(stderr): {e.stderr}")
 # 實時更新progress bar
     def my_progress_bar(self, stream, chunk, data_remaining):
         """progress_callback to use"""
@@ -423,7 +400,7 @@ class mainWindow(QMainWindow):
             self.error_dialog.warning(self, "錯誤", "YouTube網址錯誤")
             return None, None
         yt = YouTube(url, on_progress_callback=self.my_progress_bar)
-        Path("./img/").mkdir(parents=True, exist_ok=True)
+    
         img = Path("./img/"+id+".jpg")
         streams_dict = {}
         try:
@@ -433,7 +410,7 @@ class mainWindow(QMainWindow):
                     "title": yt.title, 
                     "thumbnail_path": str(img),
                     "author": yt.author,
-                    "captions": yt.captions,# 字幕
+                    #"captions": yt.captions,# 字幕
                     "publish_date": yt.publish_date,
                     "views": yt.views,
                     "play_len": yt.length
@@ -441,32 +418,49 @@ class mainWindow(QMainWindow):
             if not audio_only:
                 for res in self.RES:
                     video_obj = yt.streams.filter( mime_type="video/mp4", res=res).first()
-                    if video_obj is not None:
+                    if video_obj != None:
                         streams_dict.update({int(res[:-1]): video_obj})
-            streams_dict.update({8787: yt.streams.filter( mime_type="audio/mp4").order_by('abr').desc().first() }) # audio
+            streams_dict.update({8787: yt.streams.filter(mime_type="audio/mp4").last() }) # audio
             
         except Exception as e:
             logging.error("get_yt_info error.")
             logging.error(e)
             return None, None
         return info_dict, streams_dict
-# 使用eyed3更改下載的音樂資訊
-    def add_title(self, file_name, info_dict):
-        """add info in mp3
+# 使用mutagen更改下載的音樂資訊
+    def add_info(self, file_name, info_dict):
+        _, file_extension = os.path.splitext(file_name.lower())
+        if file_extension == '.mp3':
+            self.add_info_mp3(file_name, info_dict)
+        elif file_extension == '.mp4':
+            self.add_info_mp4(file_name, info_dict)
 
-        Args:
-            file_name (_type_): mp3 file_name
-            info_dict (_str_): info dict
-        """
-        audioFile = eyed3.load(file_name)
-        if audioFile.tag is None:
-            audioFile.initTag()
-        audioFile.tag.title = info_dict["title"]
-        audioFile.tag.artist = info_dict["author"]
-        audioFile.tag.album = info_dict["author"]
-        audioFile.tag.images.set(eyed3.id3.frames.ImageFrame.FRONT_COVER, open(info_dict["thumbnail_path"],'rb').read(), 'image/jpeg')
-        audioFile.tag.save()
+    def add_info_mp3(self, file_name, info_dict):
+        try:
+            audio = ID3(file_name)
+        except ID3NoHeaderError as e:
+            audio = ID3()
+            logging.error("add_info_mp3 error.")
+            logging.error(e)
+        audio.delete()
+        audio.add(TIT2(encoding=3, text=info_dict["title"]))
+        audio.add(TPE1(encoding=3, text=info_dict["author"]))
+        audio.add(TALB(encoding=3, text=info_dict["author"]))
+        with open(info_dict["thumbnail_path"], 'rb') as f:
+            cover_data = f.read()
+            audio.add(APIC(3, 'image/jpeg', 3, 'Front cover', cover_data))
+        audio.save(file_name)
 
+    def add_info_mp4(self, file_name, info_dict):
+        mp4 = MP4(file_name)
+        mp4.delete()
+        mp4["\xa9nam"] = info_dict["title"]
+        mp4["\xa9ART"] = info_dict["author"]
+        mp4["\xa9alb"] = info_dict["author"]
+        with open(info_dict["thumbnail_path"], 'rb') as f:
+            cover_data = f.read()
+            mp4["covr"] = [MP4Cover(cover_data, imageformat=MP4Cover.FORMAT_JPEG)]
+        mp4.save()
             
 if __name__ == '__main__':
     app = QApplication(sys.argv)
