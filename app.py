@@ -72,7 +72,7 @@ class ProgressDelegate(QStyledItemDelegate):
         progress_bar_option.textVisible = True
         progress_bar_option.state |= QStyle.StateFlag.State_Horizontal
         return progress_bar_option
-        
+    
 class mainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -85,7 +85,7 @@ class mainWindow(QMainWindow):
             for i in temp:
                 yield str(i)
         self.random_num = get_random()
-        self.progress = {}
+        self.progress = {} # {stream: it_progress.index()}
         self.Qthread_queue = []
     # popup
         self.select_win = selectWin(self.RES)
@@ -112,12 +112,16 @@ class mainWindow(QMainWindow):
     def start_Qthread(self):
         """ start & control Qthread"""
         if self.Qthread_queue:
-            print(self.Qthread_queue)
             thread = self.Qthread_queue.pop(0)
             thread.start()
-    def add_thread(self, t):
+    def add_thread(self, target, args):
         """ add to thread the queue"""
+        t = threading.Thread(target=target, args=args)
+        t.daemon=True
         self.Qthread_queue.append(t)
+    def update_progress_bar(self, stream, percent):
+        if stream in self.progress:
+            self.model.setItemData(self.progress[stream].index(), {Qt.ItemDataRole.UserRole + 1000: percent})
 # GUI建立及擺設
     def set_download_area(self):
         self.download_area = QScrollArea(self.centralwidget)
@@ -183,14 +187,14 @@ class mainWindow(QMainWindow):
     def download_audio_event(self):
         info_dict, streams_dict = self.get_yt_info(audio_only=True)
         if info_dict is not None:
-            self.download(self.output_path, info_dict, streams_dict, 8787)
+            self.add_thread(self.download, (self.output_path, info_dict, streams_dict, 8787,))
     def download_video_event(self):
         info_dict, streams_dict = self.get_yt_info()
         if info_dict is not None:  
             res = self.select_win.start(info_dict, streams_dict)
             if res == None:
                 return
-            self.download(self.output_path, info_dict, streams_dict, res)
+            self.add_thread(self.download, (self.output_path, info_dict, streams_dict, res,))
 # 下載播放清單GUI建立            
     def download_playlist_event(self):
         def get_playlist_ID(url):
@@ -209,22 +213,18 @@ class mainWindow(QMainWindow):
         res = self.playlist_win.start()
         if res == None:
             return 
-        t = threading.Thread(target=self.playlist_thread, args =(url,res,))
-        t.daemon=True
-        self.add_thread(t)
+        self.add_thread(self.playlist_thread, (url,res,))
 # 下載播放清單執行緒
     def playlist_thread(self, url, res):
         """ download playlist thread"""
         save_path = self.output_path
         
         for u in Playlist(url).video_urls:
-            info_dict, streams_dict = self.get_yt_info(u, audio_only=True, playlist=True) if res == 8787 else self.get_yt_info(u, playlist=True)
+            info_dict, streams_dict = self.get_yt_info(u, audio_only=True, playlist=True) if res == 8787 else self.get_yt_info(u, audio_only=False,playlist=True)
             if info_dict is not None:
                 if res != 8787:
                     res = next(iter(streams_dict))
-                t = threading.Thread(target=self.download, args =(save_path, info_dict, streams_dict, res, True,))
-                t.daemon=True
-                self.add_thread(t)
+                self.add_thread(self.download, (save_path, info_dict, streams_dict, res, True,))
 # 下載GUI建立                
     def download(self, save_path, info_dict, streams_dict, res, isPlaylist=False):
         """ add download gui and call download_thread"""
@@ -249,9 +249,7 @@ class mainWindow(QMainWindow):
             self.model.appendRow([it_image, it_title, it_progress])
             self.list_view.setModel(self.model)
         # thread
-            t = threading.Thread(target=self.download_thread, args =(save_path, info_dict, streams_dict, res,))
-            t.daemon=True
-            self.add_thread(t)
+            self.add_thread(self.download_thread, (save_path, info_dict, streams_dict, res,))
 # 下載執行緒
     def download_thread(self, save_path, info_dict, streams_dict, res):
         """ download thread"""
@@ -277,6 +275,9 @@ class mainWindow(QMainWindow):
                 os.remove(video_path)
             os.remove(audio_path)
             self.add_info(output_path, info_dict)    
+            # 進度條更新
+            self.update_progress_bar(streams_dict[res], 100)
+            self.progress.pop(streams_dict[res], None)
         except Exception as e:
             logging.error("Download Thread error.")
             logging.error(e)
@@ -310,9 +311,10 @@ class mainWindow(QMainWindow):
 # 實時更新progress bar
     def my_progress_bar(self, stream, chunk, data_remaining):
         """progress_callback to use"""
-        total_size = stream.filesize
-        percent = 2*int(50*((total_size - data_remaining) / total_size))
-        self.model.setItemData(self.progress[stream].index(), {Qt.ItemDataRole.UserRole + 1000: percent})
+        if stream in self.progress:
+            total_size = stream.filesize
+            percent = 2*int(50*((total_size - data_remaining) / total_size)) - 1
+            self.update_progress_bar(stream, percent)        
 # 獲取影片ID
     def get_video_ID(self, url):
         """It will return YouTube's ID
