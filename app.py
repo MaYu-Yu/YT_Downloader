@@ -7,13 +7,11 @@ from pytube import YouTube, Playlist
 from pathlib import Path
 import ffmpeg, re
 import urllib.request, os, logging, random, time
-import threading, multiprocessing
+import threading
 from mutagen.mp4 import MP4, MP4Cover
 from mutagen.id3 import ID3, APIC, TIT2, TPE1, TALB, ID3NoHeaderError
 # my lib 
 from Scripts.select_window import selectWin, playlistWin
-from Scripts.Circular_Queue import Circular_Queue
-
 
 # 建立刪除舊日誌檔案的函式
 def delDir(dir_path, max_age=259200):
@@ -47,38 +45,6 @@ LOGGING_FORMAT = '%(asctime)s - %(name)s - %(levelname)s - %(message)s [line:%(l
 DATE_FORMAT = '%Y%m%d %H:%M:%S'
 logging.basicConfig(level=logging.INFO, filename='./img/mylog.log', filemode='a+',
                     format=LOGGING_FORMAT, datefmt=DATE_FORMAT, encoding='utf-8')
-
-# 進度條同步更新的執行緒
-class progressThread(QThread):
-    def __init__(self, model, progress, it_progress, stream):
-        QThread.__init__(self)
-        self.model = model
-        self.progress = progress
-        self.it_progress = it_progress
-        self.stream = stream
-        self.over = False
-
-    def __del__(self):
-        self.wait()
-
-    def run(self):
-        elapsed_timer = QElapsedTimer()
-        elapsed_timer.start()
-
-        try:
-            while not self.over:
-                val = self.progress[self.stream]
-                if val <= 100:
-                    self.model.setItemData(self.it_progress.index(), {Qt.ItemDataRole.UserRole + 1000: val})
-                    if val == 100:
-                        self.over = True
-                elapsed_time = elapsed_timer.elapsed()
-                if elapsed_time < 1000:  # Delay 1 second
-                    self.msleep(1000 - elapsed_time)
-        except RuntimeError as e:
-            self.progress[self.stream] = -1
-            logging.error("progressThread Error")
-            logging.error(e)
 
 # 繪製進度條
 class ProgressDelegate(QStyledItemDelegate):
@@ -120,11 +86,7 @@ class mainWindow(QMainWindow):
                 yield str(i)
         self.random_num = get_random()
         self.progress = {}
-    #limit threading
-        cpu_cores = multiprocessing.cpu_count() // 2
-        self.MAX_THREADING = max(1, cpu_cores)
-        self.Qthread_queue = Circular_Queue(self.MAX_THREADING)
-        logging.info(f"MAX_THREADING={self.MAX_THREADING}")
+        self.Qthread_queue = []
     # popup
         self.select_win = selectWin(self.RES)
         self.playlist_win = playlistWin()
@@ -146,23 +108,16 @@ class mainWindow(QMainWindow):
         QMetaObject.connectSlotsByName(self)
         self.timer = QTimer()
         self.timer.timeout.connect(self.start_Qthread)
-        self.timer.start(500)  # this will emit every second
-# thread控制
+        self.timer.start(1000)  # this will emit every second
     def start_Qthread(self):
         """ start & control Qthread"""
-        try:
-            if not self.Qthread_queue.isEmpty() and threading.active_count() <= self.MAX_THREADING: # cpu_percent
-                t = self.Qthread_queue.deQueue()
-                t.start()
-        except Exception as e:
-            logging.error("Qthread start error.")
-            logging.error(e)
+        if self.Qthread_queue:
+            print(self.Qthread_queue)
+            thread = self.Qthread_queue.pop(0)
+            thread.start()
     def add_thread(self, t):
-        """ add thread the queue, if the queue is full, wait until the queue is free"""
-        while self.Qthread_queue.isFull():
-            time.sleep(1)
-            QCoreApplication.processEvents()
-        self.Qthread_queue.enQueue(t)
+        """ add to thread the queue"""
+        self.Qthread_queue.append(t)
 # GUI建立及擺設
     def set_download_area(self):
         self.download_area = QScrollArea(self.centralwidget)
@@ -263,7 +218,7 @@ class mainWindow(QMainWindow):
         save_path = self.output_path
         
         for u in Playlist(url).video_urls:
-            info_dict, streams_dict = self.get_yt_info(u, audio_only=True) if res == 8787 else self.get_yt_info(u)
+            info_dict, streams_dict = self.get_yt_info(u, audio_only=True, playlist=True) if res == 8787 else self.get_yt_info(u, playlist=True)
             if info_dict is not None:
                 if res != 8787:
                     res = next(iter(streams_dict))
@@ -290,23 +245,17 @@ class mainWindow(QMainWindow):
 
             it_progress = QStandardItem()
             it_progress.setData(0, Qt.ItemDataRole.UserRole+1000)
-            self.progress.update({stream: 0})
+            self.progress.update({stream: it_progress})
             self.model.appendRow([it_image, it_title, it_progress])
             self.list_view.setModel(self.model)
         # thread
-            p = progressThread(self.model, self.progress, it_progress, stream)
             t = threading.Thread(target=self.download_thread, args =(save_path, info_dict, streams_dict, res,))
             t.daemon=True
-            
-            self.add_thread(p)
             self.add_thread(t)
 # 下載執行緒
     def download_thread(self, save_path, info_dict, streams_dict, res):
         """ download thread"""
         try:
-            stream = streams_dict[res]
-            self.progress[stream] = 0
-            
             audio_path = streams_dict[8787].download(output_path="temp", 
                                     filename_prefix=next(self.random_num), skip_existing=False)
             if res == 8787:
@@ -328,7 +277,6 @@ class mainWindow(QMainWindow):
                 os.remove(video_path)
             os.remove(audio_path)
             self.add_info(output_path, info_dict)    
-            self.progress[stream] = 100
         except Exception as e:
             logging.error("Download Thread error.")
             logging.error(e)
@@ -363,8 +311,8 @@ class mainWindow(QMainWindow):
     def my_progress_bar(self, stream, chunk, data_remaining):
         """progress_callback to use"""
         total_size = stream.filesize
-        percent = 2*int(50*((total_size - data_remaining) / total_size)) - 1
-        self.progress[stream] = percent
+        percent = 2*int(50*((total_size - data_remaining) / total_size))
+        self.model.setItemData(self.progress[stream].index(), {Qt.ItemDataRole.UserRole + 1000: percent})
 # 獲取影片ID
     def get_video_ID(self, url):
         """It will return YouTube's ID
@@ -382,7 +330,7 @@ class mainWindow(QMainWindow):
             logging.warning("Not a YouTube's URL.")
             return None 
 # 獲取影片的基本資訊
-    def get_yt_info(self, url='', audio_only=False):
+    def get_yt_info(self, url='', audio_only=False, playlist=False):
         """get Video info
 
         Args:
@@ -417,9 +365,10 @@ class mainWindow(QMainWindow):
                     }
             if not audio_only:
                 for res in self.RES:
-                    video_obj = yt.streams.filter( mime_type="video/mp4", res=res).first()
+                    video_obj = yt.streams.filter(adaptive=True, mime_type="video/mp4", res=res).first()
                     if video_obj != None:
                         streams_dict.update({int(res[:-1]): video_obj})
+                    if playlist: break
             streams_dict.update({8787: yt.streams.filter(mime_type="audio/mp4").last() }) # audio
             
         except Exception as e:
@@ -461,9 +410,9 @@ class mainWindow(QMainWindow):
             cover_data = f.read()
             mp4["covr"] = [MP4Cover(cover_data, imageformat=MP4Cover.FORMAT_JPEG)]
         mp4.save()
-            
 if __name__ == '__main__':
     app = QApplication(sys.argv)
     myWin = mainWindow()
     myWin.show()
-    sys.exit(app.exec())  # Use QApplication.exec() instead of app.exec_()
+    
+    sys.exit(app.exec())
