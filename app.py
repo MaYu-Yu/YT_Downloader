@@ -231,16 +231,27 @@ class mainWindow(QMainWindow):
     def download_audio_event(self):
         info_dict, streams_dict = self.get_yt_info(audio_only=True)
         if info_dict is not None:
-            self.my_thread.add_thread(self.download, (self.output_path, info_dict, streams_dict, 8787))
-            
+            # 重複過濾
+            stream_file = Path(self.output_path / (streams_dict[8787].default_filename[:-4]+".mp3"))
+            if stream_file.exists():
+                self.error_dialog.warning(self, "錯誤", "重複下載\n{}".format(str(stream_file)))
+            else:
+                self.my_thread.add_thread(self.download, (self.output_path, info_dict, streams_dict, 8787))
+        else:
+            self.error_dialog.warning(self, "錯誤", "YouTube網址錯誤")
     def download_video_event(self):
         info_dict, streams_dict = self.get_yt_info()
         if info_dict is not None:  
             res = self.select_win.start(info_dict, streams_dict)
-            if res == None:
-                return
-            self.my_thread.add_thread(self.download, (self.output_path, info_dict, streams_dict, res))
-    
+            if res != None:
+                # 重複過濾
+                stream_file = Path(self.output_path / streams_dict[res].default_filename)
+                if stream_file.exists():
+                    self.error_dialog.warning(self, "錯誤", "重複下載\n{}".format(str(stream_file)))
+                else:  
+                    self.my_thread.add_thread(self.download, (self.output_path, info_dict, streams_dict, res))
+        else:
+            self.error_dialog.warning(self, "錯誤", "YouTube網址錯誤")
     # 下載播放清單GUI建立            
     def download_playlist_event(self):
         def get_playlist_ID(url):
@@ -271,19 +282,16 @@ class mainWindow(QMainWindow):
             if streams_dict is not None:
                 if res != 8787:
                     res = next(iter(streams_dict))
-                self.my_thread.add_thread(self.download, (save_path, info_dict, streams_dict, res, True,))
+                self.my_thread.add_thread(self.download, (save_path, info_dict, streams_dict, res,))
                 
     # 下載GUI建立                
-    def download(self, save_path, info_dict, streams_dict, res, isPlaylist=False):
+    def download(self, save_path, info_dict, streams_dict, res):
         """ add download gui and call download_thread"""
         stream = streams_dict[res]
         # 重複過濾
         stream_file = Path(save_path / stream.default_filename) if res != 8787 else \
             Path(save_path / (stream.default_filename[:-4]+".mp3"))
-        if stream_file.exists():
-            if not isPlaylist:
-                self.error_dialog.warning(self, "錯誤", "重複下載\n{}".format(str(stream_file)))
-        else:
+        if not stream_file.exists():
             # add_QTableView_item    
             pixmap = QPixmap(info_dict["thumbnail_path"])
             pixmap.scaled(25,25, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.FastTransformation)
@@ -400,7 +408,6 @@ class mainWindow(QMainWindow):
             url = pyperclip.paste()
         id = self.get_video_ID(url)
         if id is None: 
-            self.error_dialog.warning(self, "錯誤", "YouTube網址錯誤")
             return None, None
         yt = YouTube(url, on_progress_callback=self.my_progress_bar)
     
