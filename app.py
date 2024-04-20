@@ -2,12 +2,11 @@ from PyQt6.QtWidgets import *
 from PyQt6.QtGui import * 
 from PyQt6.QtCore import *
 from qt_material import apply_stylesheet
-import pyperclip, sys # clipboard
+import pyperclip, sys, threading
 from pytube import YouTube, Playlist
 from pathlib import Path
 import ffmpeg, re
 import urllib.request, os, logging, random, time
-import threading
 from mutagen.mp4 import MP4, MP4Cover
 from mutagen.id3 import ID3, APIC, TIT2, TPE1, TALB, ID3NoHeaderError
 # my lib 
@@ -73,6 +72,32 @@ class ProgressDelegate(QStyledItemDelegate):
         progress_bar_option.state |= QStyle.StateFlag.State_Horizontal
         return progress_bar_option
     
+class MyQthread(QObject):
+    def __init__(self, max_thread_size=5):
+        super().__init__()
+        self.thread_queue = []
+        self.max_thread_size = max_thread_size  # 設置預設的最大線程數
+
+        self.timer = QTimer()
+        self.timer.timeout.connect(self.start_thread)
+        self.timer.start(1000)  # 每秒觸發一次
+        
+    def set_max_thread_size(self, max_thread_size):
+        self.max_thread_size = max_thread_size
+        
+    def start_thread(self):
+        if self.thread_queue and threading.active_count() < self.max_thread_size:
+            thread = self.thread_queue.pop(0)
+            thread.start()
+
+    def add_thread(self, target, args):
+        t = threading.Thread(target=target, args=args)
+        t.daemon = True
+        self.thread_queue.append(t)
+
+    def clear_threads(self):
+        self.thread_queue = []
+        
 class mainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -86,11 +111,12 @@ class mainWindow(QMainWindow):
                 yield str(i)
         self.random_num = get_random()
         self.progress = {} # {stream: it_progress.index()}
-        self.Qthread_queue = []
-    # popup
+        self.my_thread = MyQthread(5)
+        # popup
         self.select_win = selectWin(self.RES)
         self.playlist_win = playlistWin()
-    # mainWindow setting
+
+        # mainWindow setting
         self.setWindowTitle("YouTube下載器")
         self.error_dialog = QMessageBox()
         self.move(QPoint(800, 50))
@@ -99,30 +125,19 @@ class mainWindow(QMainWindow):
         self.centralwidget = QWidget(self)
         self.setCentralWidget(self.centralwidget)
         self.set_up_btn()   
+        self.set_down_btn()
         self.set_download_area()
         
         progress_delegate = ProgressDelegate(self.list_view)
         self.list_view.setItemDelegateForColumn(2, progress_delegate)
         self.model = QStandardItemModel(0, 3)
         self.model.setHorizontalHeaderLabels(["Image","Title", "Progress"])
-        QMetaObject.connectSlotsByName(self)
-        self.timer = QTimer()
-        self.timer.timeout.connect(self.start_Qthread)
-        self.timer.start(1000)  # this will emit every second
-    def start_Qthread(self):
-        """ start & control Qthread"""
-        if self.Qthread_queue:
-            thread = self.Qthread_queue.pop(0)
-            thread.start()
-    def add_thread(self, target, args):
-        """ add to thread the queue"""
-        t = threading.Thread(target=target, args=args)
-        t.daemon=True
-        self.Qthread_queue.append(t)
+        
     def update_progress_bar(self, stream, percent):
         if stream in self.progress:
             self.model.setItemData(self.progress[stream].index(), {Qt.ItemDataRole.UserRole + 1000: percent})
-# GUI建立及擺設
+
+    # GUI建立及擺設
     def set_download_area(self):
         self.download_area = QScrollArea(self.centralwidget)
         self.download_area.setGeometry(QRect(10, 80, 640, 500))
@@ -136,6 +151,7 @@ class mainWindow(QMainWindow):
         self.list_view.setIconSize(self.my_icon_size)
         self.list_view.verticalHeader().setDefaultSectionSize(50)
         self.download_area.setWidget(self.scroll_area) 
+    
     def set_up_btn(self):
         self.horizontal_layout_widget = QWidget(self.centralwidget)
         self.horizontal_layout_widget.setGeometry(QRect(10, 10, 641, 61))
@@ -152,7 +168,6 @@ class mainWindow(QMainWindow):
         self.horizontal_layout.addWidget(self.select_output_btn)
         self.horizontal_layout.addWidget(self.download_playlist_btn)
 
-        
         self.sizePolicy = QSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Preferred)
         self.sizePolicy.setHorizontalStretch(0)
         self.sizePolicy.setVerticalStretch(0)
@@ -165,37 +180,68 @@ class mainWindow(QMainWindow):
         self.select_output_btn.setSizePolicy(self.sizePolicy)
         self.download_playlist_btn.setSizePolicy(self.sizePolicy)
         
-        self.download_audio_btn.clicked.connect( \
-            lambda:self.download_audio_event())
-        self.download_video_btn.clicked.connect( \
-            lambda:self.download_video_event())
-        self.select_output_btn.clicked.connect( \
-            lambda:self.select_output_event())
-        self.download_playlist_btn.clicked.connect( \
-            lambda:self.download_playlist_event())
+        self.download_audio_btn.clicked.connect(self.download_audio_event)
+        self.download_video_btn.clicked.connect(self.download_video_event)
+        self.select_output_btn.clicked.connect(self.select_output_event)
+        self.download_playlist_btn.clicked.connect(self.download_playlist_event)
         
         self.download_audio_btn.setText("下載音訊")
         self.download_video_btn.setText("下載影片")
         self.select_output_btn.setText("輸出資料夾")
         self.download_playlist_btn.setText("下載播放清單")
-    
-# GUI事件
+        
+    def set_down_btn(self):
+        """建立設定按鈕"""
+        self.setting_btn = QPushButton(self.centralwidget)
+        self.setting_btn.setGeometry(QRect(10, 600, 100, 40))
+        self.setting_btn.setText("設定")
+        self.setting_btn.clicked.connect(self.open_setting_dialog)
+    def open_setting_dialog(self):
+        """打開設定對話框"""
+        self.setting_dialog = QDialog(self)
+        self.setting_dialog.setWindowTitle("設定")
+        self.setting_dialog.setFixedSize(300, 200)
+
+        max_thread_label = QLabel("最大執行緒數量:", self.setting_dialog)
+        max_thread_label.move(20, 20)
+
+        self.max_thread_spinbox = QSpinBox(self.setting_dialog)
+        self.max_thread_spinbox.setGeometry(QRect(140, 20, 80, 24))
+        self.max_thread_spinbox.setMinimum(1)
+        self.max_thread_spinbox.setMaximum(10)
+        self.max_thread_spinbox.setValue(self.my_thread.max_thread_size)
+
+        save_button = QPushButton("儲存", self.setting_dialog)
+        save_button.setGeometry(QRect(100, 150, 80, 30))
+        save_button.clicked.connect(self.save_settings)
+
+        self.setting_dialog.exec()
+    def save_settings(self):
+        """儲存設定"""
+        max_thread_size = self.max_thread_spinbox.value()
+        self.my_thread.set_max_thread_size(max_thread_size)
+        self.setting_dialog.close()
+        
+    # GUI事件
     def select_output_event(self):
         """set output path use QFileDialog.getExistingDirectory"""
         self.output_path = Path(QFileDialog.getExistingDirectory(self, "Select Directory")) 
         logging.info("set output path : {}".format(self.output_path))
+        
     def download_audio_event(self):
         info_dict, streams_dict = self.get_yt_info(audio_only=True)
         if info_dict is not None:
-            self.add_thread(self.download, (self.output_path, info_dict, streams_dict, 8787,))
+            self.my_thread.add_thread(self.download, (self.output_path, info_dict, streams_dict, 8787))
+            
     def download_video_event(self):
         info_dict, streams_dict = self.get_yt_info()
         if info_dict is not None:  
             res = self.select_win.start(info_dict, streams_dict)
             if res == None:
                 return
-            self.add_thread(self.download, (self.output_path, info_dict, streams_dict, res,))
-# 下載播放清單GUI建立            
+            self.my_thread.add_thread(self.download, (self.output_path, info_dict, streams_dict, res))
+    
+    # 下載播放清單GUI建立            
     def download_playlist_event(self):
         def get_playlist_ID(url):
             """It will return YouTube's Playlist ID"""
@@ -206,6 +252,7 @@ class mainWindow(QMainWindow):
             else: 
                 logging.warning("Not a YouTube's PlayList URL.")
                 return None
+        
         url = pyperclip.paste()
         if get_playlist_ID(url) is None:
             self.error_dialog.critical(self, "錯誤", "此視頻無播放清單")
@@ -213,8 +260,9 @@ class mainWindow(QMainWindow):
         res = self.playlist_win.start()
         if res == None:
             return 
-        self.add_thread(self.playlist_thread, (url,res,))
-# 下載播放清單執行緒
+        self.my_thread.add_thread(self.playlist_thread, (url,res,))
+        
+    # 下載播放清單執行緒
     def playlist_thread(self, url, res):
         """ download playlist thread"""
         save_path = self.output_path
@@ -223,19 +271,20 @@ class mainWindow(QMainWindow):
             if streams_dict is not None:
                 if res != 8787:
                     res = next(iter(streams_dict))
-                self.add_thread(self.download, (save_path, info_dict, streams_dict, res, True,))
-# 下載GUI建立                
+                self.my_thread.add_thread(self.download, (save_path, info_dict, streams_dict, res, True,))
+                
+    # 下載GUI建立                
     def download(self, save_path, info_dict, streams_dict, res, isPlaylist=False):
         """ add download gui and call download_thread"""
         stream = streams_dict[res]
-    # 重複過濾
+        # 重複過濾
         stream_file = Path(save_path / stream.default_filename) if res != 8787 else \
             Path(save_path / (stream.default_filename[:-4]+".mp3"))
         if stream_file.exists():
             if not isPlaylist:
                 self.error_dialog.warning(self, "錯誤", "重複下載\n{}".format(str(stream_file)))
         else:
-        # add_QTableView_item    
+            # add_QTableView_item    
             pixmap = QPixmap(info_dict["thumbnail_path"])
             pixmap.scaled(25,25, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.FastTransformation)
             it_image = QStandardItem(QIcon(pixmap), '')
@@ -247,9 +296,10 @@ class mainWindow(QMainWindow):
             self.progress.update({stream: it_progress})
             self.model.appendRow([it_image, it_title, it_progress])
             self.list_view.setModel(self.model)
-        # thread
-            self.add_thread(self.download_thread, (save_path, info_dict, streams_dict, res,))
-# 下載執行緒
+            # thread
+            self.my_thread.add_thread(self.download_thread, (save_path, info_dict, streams_dict, res,))
+            
+    # 下載執行緒
     def download_thread(self, save_path, info_dict, streams_dict, res):
         """ download thread"""
         try:
@@ -283,7 +333,8 @@ class mainWindow(QMainWindow):
             os.remove(audio_path)
             os.remove(video_path)
             os.remove(output_path)
-# 音樂轉成mp3
+            
+    # 音樂轉成mp3
     def convert_to_mp3(self, input_path, output_path):
         try:
             ffmpeg.input(input_path).output(output_path).run(overwrite_output=True)
@@ -294,7 +345,7 @@ class mainWindow(QMainWindow):
             logging.error(f"Error(stdout): {e.stdout}")
             logging.error(f"Error(stderr): {e.stderr}")
             
-# 因為yt最高畫質跟音樂是分開下載的 所以需要合併它們
+    # 因為yt最高畫質跟音樂是分開下載的 所以需要合併它們
     def merge_audio_and_video(self, audio_path, video_path, output_path):
         try:
             audio = ffmpeg.input(audio_path)
@@ -307,14 +358,16 @@ class mainWindow(QMainWindow):
             logging.error("merge_audio_and_video error.")
             logging.error(f"Error(stdout): {e.stdout}")
             logging.error(f"Error(stderr): {e.stderr}")
-# 實時更新progress bar
+            
+    # 實時更新progress bar
     def my_progress_bar(self, stream, chunk, data_remaining):
         """progress_callback to use"""
         if stream in self.progress:
             total_size = stream.filesize
             percent = 2*int(50*((total_size - data_remaining) / total_size)) - 1
             self.update_progress_bar(stream, percent)        
-# 獲取影片ID
+            
+    # 獲取影片ID
     def get_video_ID(self, url):
         """It will return YouTube's ID
         Args:
@@ -330,7 +383,8 @@ class mainWindow(QMainWindow):
         else: 
             logging.warning("Not a YouTube's URL.")
             return None 
-# 獲取影片的基本資訊
+        
+    # 獲取影片的基本資訊
     def get_yt_info(self, url='', audio_only=False, playlist=False):
         """get Video info
 
@@ -375,7 +429,8 @@ class mainWindow(QMainWindow):
             logging.error(e)
             return None, None
         return info_dict, streams_dict
-# 使用mutagen更改下載的音樂資訊
+    
+    # 使用mutagen更改下載的音樂資訊
     def add_info(self, file_name, info_dict):
         _, file_extension = os.path.splitext(file_name.lower())
         if file_extension == '.mp3':
@@ -409,6 +464,7 @@ class mainWindow(QMainWindow):
             cover_data = f.read()
             mp4["covr"] = [MP4Cover(cover_data, imageformat=MP4Cover.FORMAT_JPEG)]
         mp4.save()
+
 if __name__ == '__main__':
     app = QApplication(sys.argv)
     myWin = mainWindow()
