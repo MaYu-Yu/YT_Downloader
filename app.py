@@ -78,7 +78,7 @@ class mainWindow(QMainWindow):
         super().__init__()
         apply_stylesheet(self, theme='dark_pink.xml')
         self.output_path = Path(str(Path.home() / "Downloads"))
-        self.RES = ("4320p", "2160p", "1080p", "720p", "480p")
+        self.RES = ("4320p", "2160p", "1080p", "720p", "480p","360p")
         def get_random():
             temp = [i for i in range(1, 10000)]
             random.shuffle(temp)
@@ -218,10 +218,9 @@ class mainWindow(QMainWindow):
     def playlist_thread(self, url, res):
         """ download playlist thread"""
         save_path = self.output_path
-        
         for u in Playlist(url).video_urls:
             info_dict, streams_dict = self.get_yt_info(u, audio_only=True, playlist=True) if res == 8787 else self.get_yt_info(u, audio_only=False,playlist=True)
-            if info_dict is not None:
+            if streams_dict is not None:
                 if res != 8787:
                     res = next(iter(streams_dict))
                 self.add_thread(self.download, (save_path, info_dict, streams_dict, res, True,))
@@ -370,9 +369,7 @@ class mainWindow(QMainWindow):
                     video_obj = yt.streams.filter(adaptive=True, mime_type="video/mp4", res=res).first()
                     if video_obj != None:
                         streams_dict.update({int(res[:-1]): video_obj})
-                    if playlist: break
             streams_dict.update({8787: yt.streams.filter(mime_type="audio/mp4").last() }) # audio
-            
         except Exception as e:
             logging.error("get_yt_info error.")
             logging.error(e)
