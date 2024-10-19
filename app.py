@@ -386,6 +386,7 @@ class mainWindow(QMainWindow):
         """
         youtube_regex = r"^(?:https?:\/\/)?(?:www\.)?(?:youtu\.be\/|youtube\.com\/(?:embed\/|v\/|watch\?v=|watch\?.+&v=))(?P<video_ID>(\w|-)[^&]+)(?:\S+)?$"
         sreMatch = re.match(youtube_regex, url)
+        print (sreMatch.group("video_ID"))
         if sreMatch is not None:
             return sreMatch.group("video_ID")
         else: 
