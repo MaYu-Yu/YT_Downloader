@@ -25,12 +25,24 @@ return subprocess.Popen(
     args, shell=True, stdin=subprocess.PIPE, stdout=stdout_stream, stderr=stderr_stream
 )
 
-下載失敗BUG 參考:https://github.com/pytube/pytube/issues/1707
+下載失敗BUG#1 參考:https://github.com/pytube/pytube/issues/1707
 
-pytube中找到cipher.py
+pytube庫中找到cipher.py
 
 r'var {nfunc}\s*=\s*(\[.+?\]);'.format(
 
 去掉分號：
 
 r'var {nfunc}\s*=\s*(\[.+?\])'.format(
+
+下載失敗BUG#2 參考:https://github.com/pytube/pytube/pull/2023
+
+pytube庫中找到cipher.py
+
+r'a\.[a-zA-Z]\s*&&\s*\([a-z]\s*=\s*a\.get\("n"\)\)\s*&&\s*'
+
+改成：
+
+r'a\.[a-zA-Z]\s*&&\s*\([a-z]\s*=\s*a\.get\("n"\)\)\s*&&.*?\|\|\s*([a-z]+)',
+r'\([a-z]\s*=\s*([a-zA-Z0-9$]+)(\[\d+\])?\([a-z]\)',
+r'\([a-z]\s*=\s*([a-zA-Z0-9$]+)(\[\d+\])\([a-z]\)',  
